@@ -1,0 +1,132 @@
+name: release
+
+# Manual release: builds ripple on a self-hosted Apple Silicon runner, attaches the artifact to a
+# GitHub Release (notes pulled from CHANGELOG.md), and bumps the Homebrew tap formula.
+#
+# Trigger from the source monorepo with `just release`, or here from the Actions tab
+# ("Run workflow"). The version defaults to RippleVersion.current in the checked-out source.
+#
+# Prerequisites (one-time):
+#   * A self-hosted runner registered on this repo (Settings > Actions > Runners). An Apple Silicon
+#     Mac with Xcode 26+ active picks up the `self-hosted, macOS, ARM64` labels automatically.
+#   * A `HOMEBREW_TAP_TOKEN` repo secret: a PAT with `contents:write` on dsaad68/homebrew-tap so the
+#     runner can push the updated formula. The tap step is skipped (with a notice) when it is unset,
+#     so the release still cuts.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 0.2.4 (defaults to RippleVersion.current)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS, ARM64]
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          v="${{ inputs.version }}"
+          if [ -z "$v" ]; then
+            v="$(grep -oE 'current *= *"[0-9]+\.[0-9]+(\.[0-9]+)?"' Sources/ripple/RippleVersion.swift \
+                  | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')"
+          fi
+          [ -n "$v" ] || { echo "::error::could not resolve version"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Releasing ripple $v"
+
+      - name: Build (xcodebuild Release)
+        run: |
+          set -euo pipefail
+          xcodebuild -scheme Ripple -configuration Release \
+            -destination 'platform=macOS' -derivedDataPath build \
+            -skipPackagePluginValidation build
+          test -e "build/Build/Products/Release/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" \
+            || { echo "::error::MLX metallib missing next to the binary"; exit 1; }
+
+      - name: Package artifact
+        id: pkg
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          products="build/Build/Products/Release"
+          stage="$(mktemp -d)"
+          cp "$products/ripple" "$stage/"
+          cp -R "$products"/*.bundle "$stage/"
+          # Re-sign so the shipped binary carries a valid signature: relocating a linker/ad-hoc-signed
+          # Mach-O invalidates it, and macOS SIGKILLs an invalid one at exec ("Code Signature Invalid").
+          codesign --force --sign - "$stage/ripple"
+          tarball="ripple-$v-macos-arm64.tar.gz"
+          tar -C "$stage" -czf "$tarball" .
+          sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "Built $tarball  sha256=$sha"
+
+      - name: Extract changelog notes
+        id: notes
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          awk -v ver="$v" '
+            $0 ~ ("^## \\[" ver "\\]") { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > release-notes.md || true
+          if [ ! -s release-notes.md ]; then
+            printf 'ripple %s\n' "$v" > release-notes.md
+          fi
+          echo "----- release notes -----"; cat release-notes.md
+
+      - name: Create / update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          tarball="${{ steps.pkg.outputs.tarball }}"
+          if gh release view "$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$v" --repo "$GITHUB_REPOSITORY" --title "$v" --notes-file release-notes.md
+            gh release upload "$v" "$tarball" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$v" "$tarball" --repo "$GITHUB_REPOSITORY" \
+              --title "$v" --notes-file release-notes.md --target main
+          fi
+          echo "Release $v ready: https://github.com/$GITHUB_REPOSITORY/releases/tag/$v"
+
+      - name: Update Homebrew tap
+        if: ${{ env.TAP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.ver.outputs.version }}"
+          sha="${{ steps.pkg.outputs.sha256 }}"
+          tarball="${{ steps.pkg.outputs.tarball }}"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$v/$tarball"
+          tmp="$(mktemp -d)"
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/dsaad68/homebrew-tap.git" "$tmp"
+          mkdir -p "$tmp/Formula"
+          sed -e "s|__VERSION__|$v|g" -e "s|__URL__|$url|g" -e "s|__SHA256__|$sha|g" \
+            .github/homebrew/ripple.rb > "$tmp/Formula/ripple.rb"
+          cd "$tmp"
+          git config user.name "ripple-release-bot"
+          git config user.email "ripple-release-bot@users.noreply.github.com"
+          if git diff --quiet -- Formula/ripple.rb; then
+            echo "tap already up to date for $v"; exit 0
+          fi
+          git add Formula/ripple.rb
+          git commit -m "ripple $v"
+          git push
+          echo "Tap updated: brew install dsaad68/tap/ripple"
+
+      - name: Tap step skipped
+        if: ${{ env.TAP_TOKEN == '' }}
+        run: echo "::notice::HOMEBREW_TAP_TOKEN not set - skipped the tap update. Release artifact is still published."
