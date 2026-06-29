@@ -1,0 +1,125 @@
+site_name: Ripple
+site_description: >-
+  An on-device coding agent for macOS - a Claude Code-style terminal CLI that
+  runs LFM2.5 models locally on Apple Silicon via MLX, with an interactive REPL,
+  a headless mode, and a scenario harness. Built on DeepAgents.
+site_url: https://ripple.verybad.engineer/
+site_author: Daniel Saad
+copyright: Copyright &copy; Daniel Saad - MIT licensed
+
+repo_url: https://github.com/dsaad68/ripple
+repo_name: dsaad68/ripple
+edit_uri: ""
+
+theme:
+  name: material
+  font: false
+  language: en
+  logo: assets/images/ripple-logo.png
+  favicon: assets/images/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.indexes
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - announce.dismiss
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/dsaad68/ripple
+      name: Ripple on GitHub
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - Interactive chat:
+      - chat/index.md
+      - Slash commands: chat/slash-commands.md
+      - Shell & file mentions: chat/shell-and-mentions.md
+      - Approvals & permission modes: chat/approvals.md
+      - Plan panel & thinking: chat/plan-and-thinking.md
+      - Keyboard reference: chat/keyboard.md
+  - Models:
+      - models/index.md
+      - Local MLX models: models/local.md
+      - Remote models: models/remote.md
+  - Configuration:
+      - config/index.md
+      - Sessions: config/sessions.md
+      - Context & compaction: config/compaction.md
+  - MCP servers: mcp.md
+  - Sandbox & shell: sandbox.md
+  - Scenario harness: scenarios.md
+  - Reference:
+      - Command reference: reference/commands.md
+      - Slash command reference: reference/slash-commands.md
+  - License: license.md
