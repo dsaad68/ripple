@@ -1,0 +1,15 @@
+.DS_Store
+
+# Swift build artifacts & per-user state
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# `swift package edit` state (local DeepAgents override when developed in the monorepo)
+Packages/
+
+# MkDocs build output
+site/
