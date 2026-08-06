@@ -235,9 +235,9 @@ struct MCPBrowserTests {
             )
         ]
         let mcpTools: [any AgentTool] = [
-            NamedTool("parallel_search__web_search"),
-            NamedTool("parallel_search__fetch"),
-            NamedTool("deepwiki__ask")
+            NamedTool(server: "parallel-search", tool: "web_search"),
+            NamedTool(server: "parallel-search", tool: "fetch"),
+            NamedTool(server: "deepwiki", tool: "ask")
         ]
         let agent = RippleDeepAgent.make(
             textModel: FakeChatModel(answer: "x"),
@@ -390,9 +390,18 @@ struct MCPAuthStateTests {
 }
 
 /// A minimal `AgentTool` with a chosen name, standing in for a loaded MCP tool.
-private struct NamedTool: AgentTool {
-    let name: String
-    init(_ name: String) { self.name = name }
+/// A stub that declares the server that contributed it, the way a real MCP tool does - the
+/// browser groups by that, not by the dispatch-name prefix (two server names can sanitize onto
+/// one prefix, which would mix their tools together).
+private struct NamedTool: ServerScopedTool {
+    let serverName: String
+    let toolName: String
+    init(server: String, tool: String) {
+        serverName = server
+        toolName = tool
+    }
+
+    var name: String { MCPTool.dispatchName(server: serverName, tool: toolName) }
     var description: String { "stub" }
     var parameters: [ToolParameter] { [] }
     func execute(_ arguments: [String: AgentJSON], _ context: ToolContext) async throws -> ToolOutput {

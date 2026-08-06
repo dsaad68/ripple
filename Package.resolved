@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "deepagents-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/dsaad68/deepagents-swift.git",
-      "state" : {
-        "revision" : "c67670a1f27eec0d03e6b29db3c330842cfb5061",
-        "version" : "0.4.0"
-      }
-    },
-    {
       "identity" : "eventsource",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mattt/EventSource.git",
