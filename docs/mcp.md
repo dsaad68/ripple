@@ -238,7 +238,7 @@ Inside the REPL:
 #   web_fetch       Fetch and extract content from a URL
 
 > Search the web for the latest Swift concurrency proposals
-# [approval card appears for parallel-search__web_search]
+# [approval card appears for parallel_search__web_search]
 # a
 # [agent proceeds with results]
 ```

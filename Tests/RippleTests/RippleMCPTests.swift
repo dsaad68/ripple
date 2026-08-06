@@ -235,8 +235,8 @@ struct MCPBrowserTests {
             )
         ]
         let mcpTools: [any AgentTool] = [
-            NamedTool("parallel-search__web_search"),
-            NamedTool("parallel-search__fetch"),
+            NamedTool("parallel_search__web_search"),
+            NamedTool("parallel_search__fetch"),
             NamedTool("deepwiki__ask")
         ]
         let agent = RippleDeepAgent.make(
@@ -256,7 +256,7 @@ struct MCPBrowserTests {
         #expect(browser.groups.count == 2)
 
         let parallel = browser.groups.first { $0.title == "parallel-search" }
-        #expect(parallel?.tools.map(\.name).sorted() == ["parallel-search__fetch", "parallel-search__web_search"])
+        #expect(parallel?.tools.map(\.name).sorted() == ["parallel_search__fetch", "parallel_search__web_search"])
         #expect(parallel?.subtitle?.contains("HTTP") == true)
         #expect(parallel?.subtitle?.contains("approval: Ask") == true)
 
