@@ -8,6 +8,22 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-06
+
+### Fixed
+
+- **`/mcp` grouped tools by name prefix, so two similarly named servers showed each other's
+  tools.** The dispatch prefix is normalized, so `parallel-search` and `parallel_search` both yield
+  `parallel_search__` and matching on it cannot tell their tools apart. Grouping now asks the tool
+  which server contributed it (deepagents-swift's `ServerScopedTool`).
+
+### Changed
+
+- **deepagents-swift 0.4.0 -> 0.5.0.** MCP tool names are now normalized in both directions, so a
+  hyphenated server is reachable: a `parallel-search` server's tools dispatch as
+  `parallel_search__*`, and a call the model spells differently still finds its tool. `/mcp` and
+  `/tools` show the normalized names.
+
 ## [0.4.0] - 2026-08-05
 
 ### Added
@@ -143,6 +159,7 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 - Added `ripple --version` (prints the ripple and DeepAgents-swift versions) plus version / About
   surfaces with documentation links.
 
+[0.5.0]: https://github.com/dsaad68/ripple/releases/tag/0.5.0
 [0.4.0]: https://github.com/dsaad68/ripple/releases/tag/0.4.0
 [0.3.0]: https://github.com/dsaad68/ripple/releases/tag/0.3.0
 [0.2.4]: https://github.com/dsaad68/ripple/releases/tag/0.2.4
