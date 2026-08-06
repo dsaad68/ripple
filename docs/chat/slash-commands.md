@@ -62,14 +62,35 @@ See [MCP servers](../mcp.md) for configuration details, transport types, and tro
 
 An interactive editor for the session's live configuration:
 
-- **Capabilities** - enable or disable middleware (e.g. clipboard integration, screenshot access).
+- **Capabilities** - enable or disable middleware (e.g. clipboard integration, screenshot access),
+  and configure the JSONL debug transcript (**Logging**).
 - **Sandbox** - set the sandbox mode (`off`, `failover`, `container-only`).
-- **Prefill cache** - keep the reusable prompt prefix (system prompt + tool schemas KV) on disk
-  under `~/.cache/deepagents/prefix-kv`, so a fresh launch skips the multi-second prompt prefill.
-  On by default; turn it off to reclaim the disk space (snapshots can be a few hundred MB per
-  model). Persisted as `prefixKVCache` in `settings.json` and honored by headless `ripple -p`
-  runs too.
-- **Logging** - configure the JSONL debug transcript directory.
+- **Cache** - the on-disk prefill cache: whether it runs, how much room it may take, and what it is
+  currently holding.
+
+### The Cache tab
+
+Ripple keeps the reusable prompt prefix (system prompt + tool schemas KV) under
+`~/.cache/deepagents/prefix-kv`, so a fresh launch resumes it and skips the multi-second prompt
+prefill. Snapshots run to a few hundred MB per model, so the tab shows the cost and lets you take
+it back:
+
+| Row | Key | What it does |
+|---|---|---|
+| **Prefill cache** | `space` | On or off. Off writes nothing new; what is already saved stays. Persisted as `prefixKVCache`. |
+| **Snapshots** | `space` | How many saved prefixes to keep **per model**, cycling 2/4/6/8/12. Per model, so a planner you use occasionally keeps its warm prefix instead of being evicted by the one you use all day. Persisted as `prefixKVSnapshotsPerModel`. |
+| **Size limit** | `space` | Ceiling on the snapshots' total size, cycling 1/2/4/8/16 GB and "no limit". The oldest go first once it is passed; the newest is never evicted. Persisted as `prefixKVMaxGigabytes`. |
+| **All models** | `x` | The total, and deletes everything. |
+| One row per model | `x` | That model's size, and deletes its saved prefixes. |
+
+Both limits are needed: a count alone does not bound the directory, because one model's snapshot
+can be larger than another model's whole allowance. Lowering either prunes immediately rather than
+at the next save, so the space comes back while you are still looking at the panel.
+
+Deleting is not destructive in any lasting sense - the cache is derived, so it costs one slower
+turn per model and nothing else. There is no confirmation prompt for that reason.
+
+All of these are honored by headless `ripple -p` runs too.
 
 Changes made here are applied immediately for the current session and written back to `settings.json`. See [Configuration (overview)](../config/index.md) for the full settings schema.
 

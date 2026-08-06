@@ -300,6 +300,11 @@ extension ChatScreen {
                 footer = "enter save image · esc cancel"
             } else if config?.current?.isContainer == true {
                 footer = "←→ tabs · ↑↓ move · space cycle · e image · x default · enter/esc save"
+            } else if let row = config?.current, config?.modelID(of: row) != nil || row.id == ConfigEditor.clearRowID {
+                footer = "←→ tabs · ↑↓ move · x delete · enter/esc save & apply"
+            } else if config?.current?.id == ConfigEditor.snapshotsRowID
+                || config?.current?.id == ConfigEditor.sizeRowID {
+                footer = "←→ tabs · ↑↓ move · space cycle · enter/esc save & apply"
             } else {
                 footer = "←→ tabs · ↑↓ move · space toggle · enter/esc save & apply"
             }

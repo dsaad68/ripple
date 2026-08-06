@@ -10,6 +10,16 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [0.5.0] - 2026-08-06
 
+### Added
+
+- **A Cache tab in `/config`**, for the on-disk prefill cache. The Prefill cache toggle moves here
+  from Capabilities, and joins two limits and a listing of what the store is actually holding:
+  **Snapshots** per model (2/4/6/8/12) and a total **Size limit** (1/2/4/8/16 GB, or no limit),
+  both cycled with `space`, plus a row per model showing its size - `x` deletes that model's saved
+  prefixes, or all of them on the "All models" row. Lowering a limit prunes immediately rather than
+  at the next save. Persisted as `prefixKVSnapshotsPerModel` and `prefixKVMaxGigabytes` in
+  `settings.json`, and honored by headless runs.
+
 ### Fixed
 
 - **`/mcp` grouped tools by name prefix, so two similarly named servers showed each other's

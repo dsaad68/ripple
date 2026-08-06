@@ -215,11 +215,12 @@ struct ToolsBrowser {
 struct ConfigEditor {
     /// The panel's two tabs, switched with ←/→.
     enum Tab: CaseIterable {
-        case capabilities, sandbox
+        case capabilities, sandbox, cache
         var title: String {
             switch self {
             case .capabilities: "Capabilities"
             case .sandbox: "Sandbox"
+            case .cache: "Cache"
             }
         }
     }
@@ -242,13 +243,41 @@ struct ConfigEditor {
     /// Working copy of the prefix-KV disk-cache toggle (a Ripple setting, not part of the tool policy).
     var prefixKVCache: Bool
 
+    /// Working copies of the prefix-cache limits (Ripple settings, not part of the tool policy).
+    var snapshotsPerModel: Int
+    var maxGigabytes: Double
+    /// What the store holds, scanned when the editor opens. Empty until then.
+    var inventory: PrefixKVStore.Inventory = .empty
+
     static let logRowID = "devlog"
     static let prefixKVRowID = "prefixkv"
+    static let snapshotsRowID = "prefixkv.snapshots"
+    static let sizeRowID = "prefixkv.size"
+    static let clearRowID = "prefixkv.clear"
+    /// A per-model usage row carries its model id after this prefix, so `x` knows what to delete.
+    static let modelRowPrefix = "prefixkv.model:"
 
-    init(policy: AgentToolPolicy, logMessages: Bool = false, prefixKVCache: Bool = true) {
+    /// The counts offered on the Snapshots row, cycled with space.
+    static let snapshotChoices = [2, 4, 6, 8, 12]
+    /// The ceilings offered on the Size row, in GB. `0` is "no limit".
+    static let sizeChoices: [Double] = [1, 2, 4, 8, 16, 0]
+
+    init(
+        policy: AgentToolPolicy, logMessages: Bool = false, prefixKVCache: Bool = true,
+        snapshotsPerModel: Int = 6, maxGigabytes: Double = 4
+    ) {
         self.policy = policy
         self.logMessages = logMessages
         self.prefixKVCache = prefixKVCache
+        self.snapshotsPerModel = snapshotsPerModel
+        self.maxGigabytes = maxGigabytes
+    }
+
+    /// A byte count in the same shape the model rows use elsewhere.
+    static func size(_ bytes: Int64) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        if gb >= 1 { return String(format: "%.1f GB", gb) }
+        return String(format: "%.0f MB", Double(bytes) / 1_048_576)
     }
 
     /// The rows shown on the active tab: the capability toggles (+ logging) or the container sandbox.
@@ -258,12 +287,6 @@ struct ConfigEditor {
             return MiddlewareCatalog.all.map { Row(id: $0.id, displayName: $0.displayName, summary: $0.summary) }
                 + [
                     Row(
-                        id: Self.prefixKVRowID, displayName: "Prefill cache",
-                        summary: "Keep the reusable prompt prefix (system prompt + tool schemas KV) on disk "
-                            + "under ~/.cache/deepagents/prefix-kv, so a fresh launch resumes it and skips "
-                            + "the multi-second prompt prefill. Snapshots can be a few hundred MB per model."
-                    ),
-                    Row(
                         id: Self.logRowID, displayName: "Logging",
                         summary: "Write a developer message log (JSONL, with timing and tool steps) to the "
                             + "session folder for debugging. Off by default; separate from the resumable history."
@@ -272,7 +295,72 @@ struct ConfigEditor {
         case .sandbox:
             let container = MiddlewareCatalog.container
             return [Row(id: container.id, displayName: container.displayName, summary: container.summary)]
+        case .cache:
+            return cacheRows
         }
+    }
+
+    /// The Cache tab: the on/off switch, the two limits, then what the store is actually holding.
+    /// Usage rows are informational - `x` on one deletes that model's snapshots.
+    private var cacheRows: [Row] {
+        var rows = [
+            Row(
+                id: Self.prefixKVRowID, displayName: "Prefill cache",
+                summary: "Keep the reusable prompt prefix (system prompt + tool schemas KV) on disk "
+                    + "under ~/.cache/deepagents/prefix-kv, so a fresh launch resumes it and skips "
+                    + "the multi-second prompt prefill. Off writes nothing; what is already saved stays."
+            ),
+            Row(
+                id: Self.snapshotsRowID, displayName: "Snapshots",
+                summary: "How many saved prefixes to keep per model. Per model, not overall, so a "
+                    + "planner you use occasionally keeps its warm prefix instead of being evicted "
+                    + "by the one you use all day. Space cycles."
+            ),
+            Row(
+                id: Self.sizeRowID, displayName: "Size limit",
+                summary: "Ceiling on the snapshots' total size - the oldest go first once it is "
+                    + "passed, and the newest is never evicted. A count alone would not bound this: "
+                    + "one model's snapshot can run to a few hundred MB. Space cycles."
+            )
+        ]
+        guard !inventory.models.isEmpty || inventory.unattributedBytes > 0 else { return rows }
+        rows.append(
+            Row(
+                id: Self.clearRowID, displayName: "All models",
+                summary: "Everything the store is holding. Press x to delete all of it - it is "
+                    + "derived, so this costs one slower turn per model and nothing else."
+            )
+        )
+        for usage in inventory.models {
+            rows.append(
+                Row(
+                    id: Self.modelRowPrefix + usage.modelID,
+                    displayName: MlxModel.catalog.first { $0.id == usage.modelID }?.shortName ?? usage.modelID,
+                    summary: "\(usage.modelID) - \(usage.snapshotCount) snapshot"
+                        + (usage.snapshotCount == 1 ? "" : "s")
+                        + ", \(usage.traceCount) trace" + (usage.traceCount == 1 ? "" : "s")
+                        + ". Press x to delete this model's saved prefixes."
+                )
+            )
+        }
+        if inventory.unattributedBytes > 0 {
+            rows.append(
+                Row(
+                    id: Self.modelRowPrefix, displayName: "Other files",
+                    summary: "\(inventory.unattributedCount) file"
+                        + (inventory.unattributedCount == 1 ? "" : "s")
+                        + " that name no model, usually left by an older build. Removed by All models."
+                )
+            )
+        }
+        return rows
+    }
+
+    /// The model id a usage row deletes, or nil for any other row.
+    func modelID(of row: Row) -> String? {
+        guard row.id.hasPrefix(Self.modelRowPrefix) else { return nil }
+        let id = String(row.id.dropFirst(Self.modelRowPrefix.count))
+        return id.isEmpty ? nil : id
     }
 
     var current: Row? { rows.indices.contains(index) ? rows[index] : nil }
@@ -298,6 +386,13 @@ struct ConfigEditor {
     /// so the user's own shell choice is restored once the sandbox is off.
     func isLocked(_ row: Row) -> Bool { row.id == "shell" && policy.sandbox.isEnabled }
 
+    /// The next value after `current` in `choices`, wrapping. An unrecognised current value (a
+    /// hand-edited settings.json) lands on the first choice rather than sticking.
+    static func cycle<T: Equatable>(_ current: T, through choices: [T]) -> T {
+        guard let index = choices.firstIndex(of: current) else { return choices[0] }
+        return choices[(index + 1) % choices.count]
+    }
+
     /// The resolved sandbox image - the configured override, or the built-in default.
     var containerImage: String { policy.sandboxImage ?? AppleContainerSandbox.defaultImage }
 
@@ -306,6 +401,8 @@ struct ConfigEditor {
     func isOn(_ row: Row) -> Bool {
         if row.id == Self.logRowID { return logMessages }
         if row.id == Self.prefixKVRowID { return prefixKVCache }
+        // The limits and usage rows aren't switches; `stateLabel` shows their value instead.
+        if isCacheValueRow(row) { return true }
         if row.id == "shell" { return policy.localShellEnabled }
         return row.isContainer ? policy.sandbox.isEnabled : !policy.disabledMiddleware.contains(row.id)
     }
@@ -314,7 +411,22 @@ struct ConfigEditor {
     func stateLabel(_ row: Row) -> String {
         if isLocked(row) { return isOn(row) ? "on - fail over" : "off - container only" }
         if row.isContainer { return policy.sandbox.label }
+        if row.id == Self.snapshotsRowID { return "\(snapshotsPerModel) per model" }
+        if row.id == Self.sizeRowID {
+            return maxGigabytes == 0 ? "no limit" : String(format: "%.0f GB", maxGigabytes)
+        }
+        if row.id == Self.clearRowID { return Self.size(inventory.totalBytes) }
+        if let model = modelID(of: row) {
+            return Self.size(inventory.models.first { $0.modelID == model }?.bytes ?? 0)
+        }
+        if row.id == Self.modelRowPrefix { return Self.size(inventory.unattributedBytes) }
         return isOn(row) ? "on" : "off"
+    }
+
+    /// Rows on the Cache tab that carry a value rather than an on/off state.
+    func isCacheValueRow(_ row: Row) -> Bool {
+        row.id == Self.snapshotsRowID || row.id == Self.sizeRowID
+            || row.id == Self.clearRowID || row.id.hasPrefix(Self.modelRowPrefix)
     }
 
     /// Toggle the highlighted capability / sandbox / logging row on space (the container cycles its
@@ -325,6 +437,12 @@ struct ConfigEditor {
             logMessages.toggle()
         } else if row.id == Self.prefixKVRowID {
             prefixKVCache.toggle()
+        } else if row.id == Self.snapshotsRowID {
+            snapshotsPerModel = Self.cycle(snapshotsPerModel, through: Self.snapshotChoices)
+        } else if row.id == Self.sizeRowID {
+            maxGigabytes = Self.cycle(maxGigabytes, through: Self.sizeChoices)
+        } else if isCacheValueRow(row) {
+            return // usage rows are read-only; `x` deletes
         } else if row.isContainer {
             policy.sandbox = Self.nextSandbox(policy.sandbox)
         } else if policy.disabledMiddleware.contains(row.id) {
