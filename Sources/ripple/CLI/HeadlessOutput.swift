@@ -77,7 +77,7 @@ final class TextRenderer: HeadlessRenderer {
 
     func handle(_ event: AgentEvent) {
         switch event {
-        case .toolStarted(let name, let input, _):
+        case .toolStarted(let name, let input, _, _):
             let detail = input.isEmpty ? "" : ": \(input.replacingOccurrences(of: "\n", with: " "))"
             sink.err("· \(name)\(detail)\n")
         case .toolFailed(let name, let error, _):
@@ -147,6 +147,9 @@ struct EventLine: Encodable {
     /// The tool call a `tool_*` line belongs to. A round's tools can run in parallel, so their
     /// lines interleave - this is what a consumer pairs on instead of `name`.
     var callID: String?
+    /// Set on the `tool_started` lines of calls that ran concurrently, shared by the batch, so a
+    /// consumer can tell "three calls, one wait" from three sequential ones.
+    var batchID: String?
 
     struct TodoLine: Encodable {
         let content: String
@@ -161,9 +164,10 @@ struct EventLine: Encodable {
             type = "reasoning"; self.text = text
         case .roundCompleted(let hadToolCalls):
             type = "round_completed"; self.hadToolCalls = hadToolCalls
-        case .toolStarted(let name, let input, let callID):
+        case .toolStarted(let name, let input, let callID, let batchID):
             type = "tool_started"; self.name = name; self.input = input
             self.callID = callID?.uuidString
+            self.batchID = batchID?.uuidString
         case .toolProgress(let name, let subagent, let delta, let callID):
             type = "tool_progress"; self.name = name; self.subagent = subagent; self.delta = delta
             self.callID = callID?.uuidString

@@ -63,6 +63,62 @@ struct ParallelToolStepTests {
         #expect(!secondDone)
     }
 
+    // MARK: - The parallel indicator
+
+    @Test func stepsOfOneBatchKnowHowManyRanTogether() {
+        let batch = UUID()
+        let ids = [UUID(), UUID(), UUID()]
+        let assistant = Assistant()
+        for (index, id) in ids.enumerated() {
+            assistant.consume(.toolStarted(name: "read_file", input: "f\(index)", callID: id, batchID: batch))
+        }
+
+        // Every card in the batch shows the whole group's size, including the first one - the size
+        // is only known once the last start arrives, so the earlier steps have to be revised.
+        #expect(steps(assistant).map(\.batchSize) == [3, 3, 3])
+    }
+
+    @Test func aCallThatRanAloneCarriesNoBatch() {
+        let assistant = Assistant()
+        assistant.consume(.toolStarted(name: "write_file", input: "f", callID: UUID()))
+
+        let step = steps(assistant)[0]
+        #expect(step.batchID == nil)
+        #expect(step.batchSize == 1) // 1 renders as no marker at all
+    }
+
+    @Test func twoBatchesInOneRoundAreCountedApart() {
+        let first = UUID(), second = UUID()
+        let assistant = Assistant()
+        assistant.consume(.toolStarted(name: "read_file", input: "a", callID: UUID(), batchID: first))
+        assistant.consume(.toolStarted(name: "read_file", input: "b", callID: UUID(), batchID: first))
+        assistant.consume(.toolStarted(name: "write_file", input: "c", callID: UUID()))
+        assistant.consume(.toolStarted(name: "grep", input: "d", callID: UUID(), batchID: second))
+
+        #expect(steps(assistant).map(\.batchSize) == [2, 2, 1, 1])
+    }
+
+    /// The marker has to survive into the drawn card, not just the model - it is the only thing in
+    /// the transcript that distinguishes three parallel calls from three sequential ones.
+    @Test func theCardDrawsTheParallelMarker() {
+        let batch = UUID()
+        let assistant = Assistant()
+        assistant.consume(.toolStarted(name: "grep", input: "pattern: a", callID: UUID(), batchID: batch))
+        assistant.consume(.toolStarted(name: "ls", input: "", callID: UUID(), batchID: batch))
+        assistant.consume(.toolStarted(name: "write_file", input: "f", callID: UUID()))
+
+        let agent = RippleDeepAgent.make(textModel: FakeChatModel(answer: "x"))
+        let screen = ChatScreen(
+            variant: DeepAgentVariant.all[0], agent: agent, build: { _, _ in nil }, gate: ApprovalGate()
+        )
+        screen.messages.append(Message(kind: .assistant(assistant)))
+        screen.contentHeight = 40
+        let drawn = screen.messageLines(width: 72).map(\.text).joined(separator: "\n")
+
+        #expect(drawn.contains("∥2")) // the two batched cards say so…
+        #expect(!drawn.contains("∥1")) // …and the one that ran alone says nothing
+    }
+
     @Test func anEventWithoutACallIDStillFillsTheOpenStep() {
         // A step restored from a persisted transcript has no call id, and a host may synthesize
         // events; the older "last unfinished step" rule still applies there.

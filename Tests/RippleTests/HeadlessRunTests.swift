@@ -195,6 +195,31 @@ struct HeadlessRunTests {
         #expect(parsed[3]?["type"] as? String == "result")
     }
 
+    /// A JSONL consumer has the same pairing problem the TUI does: a round's parallel calls
+    /// interleave, so `tool_*` lines have to carry the call they belong to, and the started lines
+    /// the batch they ran in. Without them the stream is a pile of same-named lines.
+    @Test func toolLinesCarryTheirCallAndBatch() throws {
+        let call = UUID(), batch = UUID()
+        let started = try decode(jsonLine(
+            #require(EventLine(.toolStarted(name: "grep", input: "p", callID: call, batchID: batch))),
+            pretty: false
+        ))
+        #expect(started["callID"] as? String == call.uuidString)
+        #expect(started["batchID"] as? String == batch.uuidString)
+
+        let completed = try decode(jsonLine(
+            #require(EventLine(.toolCompleted(name: "grep", result: "hit", callID: call))), pretty: false
+        ))
+        #expect(completed["callID"] as? String == call.uuidString)
+        #expect(completed["batchID"] == nil) // only the started line names the batch
+
+        // A call that ran on its own says so by omission, rather than inventing an id.
+        let solo = try decode(jsonLine(
+            #require(EventLine(.toolStarted(name: "write_file", input: "f", callID: UUID()))), pretty: false
+        ))
+        #expect(solo["batchID"] == nil)
+    }
+
     @Test func eventLineEncodesFailedAndTodos() throws {
         let failed = try decode(jsonLine(#require(EventLine(.failed("nope"))), pretty: false))
         #expect(failed["type"] as? String == "failed")

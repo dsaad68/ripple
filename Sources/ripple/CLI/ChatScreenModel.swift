@@ -546,11 +546,12 @@ final class Assistant {
         case .token(let chunk, _): tokenCount += 1; noteToken(); appendAnswer(chunk)
         case .reasoningToken(let chunk): noteToken(); appendReasoning(chunk)
         case .roundCompleted: break
-        case .toolStarted(let name, let input, let callID):
+        case .toolStarted(let name, let input, let callID, let batchID):
             closeText()
             blocks.append(.step(Step(kind: .tool(name: name, detail: input, output: "",
                                                  ok: true, done: false, subagent: Self.subagent(name, input)),
-                callID: callID)))
+                callID: callID, batchID: batchID)))
+            countBatch(batchID)
         case .toolProgress(_, _, let delta, let callID):
             appendToolOutput(delta, done: false, ok: true, callID: callID)
         case .toolCompleted(_, let result, _, let diff, let callID):
@@ -624,6 +625,18 @@ final class Assistant {
         openReasoning?.append(text)
     }
 
+    /// Stamp every step of `batchID` with how many calls are now known to be in it, so each card
+    /// can show the size of the group it ran with. The batch announces all of its calls before any
+    /// of them finishes, so the count is settled before the first result lands.
+    private func countBatch(_ batchID: UUID?) {
+        guard let batchID else { return }
+        let siblings = blocks.compactMap { block -> Step? in
+            guard case .step(let step) = block, step.batchID == batchID else { return nil }
+            return step
+        }
+        for step in siblings { step.batchSize = siblings.count }
+    }
+
     /// Fill in a tool step's output. `callID` names the call this belongs to - the round's tools
     /// can run in parallel, so several steps are open at once and "the last unfinished one" is no
     /// longer the right card. Without an id (an event a host synthesized) fall back to that.
@@ -669,10 +682,16 @@ final class Step {
     /// The tool call this step shows, so progress and results reach the right card when a round
     /// runs several tools at once. `nil` for a step rebuilt from a persisted transcript.
     let callID: UUID?
+    /// The concurrent batch this call ran in, shared with its siblings; `nil` when it ran alone.
+    let batchID: UUID?
+    /// How many calls ran together in that batch, kept up to date as the batch's cards open. `1`
+    /// means "ran on its own", and is what the card renders as no indicator at all.
+    var batchSize = 1
 
-    init(kind: Kind, callID: UUID? = nil) {
+    init(kind: Kind, callID: UUID? = nil, batchID: UUID? = nil) {
         self.kind = kind
         self.callID = callID
+        self.batchID = batchID
     }
 }
 

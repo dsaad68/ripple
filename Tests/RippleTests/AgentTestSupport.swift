@@ -332,11 +332,11 @@ extension [AgentEvent] {
     }
 
     var toolStartedNames: [String] {
-        compactMap { if case .toolStarted(let n, _, _) = $0 { return n } else { return nil } }
+        compactMap { if case .toolStarted(let n, _, _, _) = $0 { return n } else { return nil } }
     }
 
     var toolStarts: [(name: String, input: String)] {
-        compactMap { if case .toolStarted(let n, let i, _) = $0 { return (n, i) } else { return nil } }
+        compactMap { if case .toolStarted(let n, let i, _, _) = $0 { return (n, i) } else { return nil } }
     }
 
     var toolCompletedResults: [(name: String, result: String)] {

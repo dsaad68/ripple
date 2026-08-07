@@ -118,6 +118,8 @@ Each tool group is a "capability middleware" - you can disable individual groups
 
 Gated tools (shell, reads, writes) pause the turn and show an [approval card](approvals.md) unless the permission mode bypasses them. The `/tools` command lists every tool currently available to the agent, grouped by capability.
 
+When the model asks for several read-only tools in one round - `grep`, `ls` and `tree` together, say - they run **at the same time** rather than one after another, and each of their cards is marked `∥3` for the size of the group. Without the marker three cards that each took 0.1s are indistinguishable from three sequential calls; the point is that the round cost one wait, not three. Writes and anything that changes state keep their place in order and carry no marker. Approvals are still shown one card at a time, so a gated batch asks you about each call in turn.
+
 ---
 
 ## Section tour

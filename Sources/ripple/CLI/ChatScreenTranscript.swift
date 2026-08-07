@@ -212,13 +212,24 @@ extension ChatScreen {
         }
     }
 
-    /// A card's right-border trailing segment: the wall-clock duration (once the call finishes) and a
-    /// ▸/▾ disclosure marker (when the card can expand), joined to ride the top border's right end.
+    /// A card's right-border trailing segment: the parallel marker (when this call ran alongside
+    /// others), the wall-clock duration (once the call finishes) and a ▸/▾ disclosure marker (when
+    /// the card can expand), joined to ride the top border's right end.
     private func cardTrailing(_ step: Step, disclosure: String?) -> String {
         var parts: [String] = []
+        if let marker = parallelMarker(step) { parts.append(marker) }
         if let seconds = step.seconds { parts.append(Paint.fg(240, String(format: "%.1fs", seconds))) }
         if let disclosure { parts.append(Paint.fg(240, disclosure)) }
         return parts.joined(separator: " ")
+    }
+
+    /// `∥3` on a card whose call ran concurrently with two others, in the accent color so a batch
+    /// reads as one group at a glance. Three cards that each took 0.1s look exactly like three
+    /// sequential calls without it - the whole point of the round is that they cost one wait, not
+    /// three, and nothing else in the transcript says so. Nil for a call that ran on its own.
+    private func parallelMarker(_ step: Step) -> String? {
+        guard step.batchSize > 1 else { return nil }
+        return Paint.fg(Theme.accent.xterm, "∥\(step.batchSize)")
     }
 
     /// A plain tool call, framed as a light card: the gear + tool name ride the top border (with the
