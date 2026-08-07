@@ -77,10 +77,10 @@ final class TextRenderer: HeadlessRenderer {
 
     func handle(_ event: AgentEvent) {
         switch event {
-        case .toolStarted(let name, let input):
+        case .toolStarted(let name, let input, _):
             let detail = input.isEmpty ? "" : ": \(input.replacingOccurrences(of: "\n", with: " "))"
             sink.err("· \(name)\(detail)\n")
-        case .toolFailed(let name, let error):
+        case .toolFailed(let name, let error, _):
             sink.err("· \(name) failed: \(error)\n")
         default:
             break
@@ -144,6 +144,9 @@ struct EventLine: Encodable {
     var todos: [TodoLine]?
     var tokensBefore: Int?
     var tokensAfter: Int?
+    /// The tool call a `tool_*` line belongs to. A round's tools can run in parallel, so their
+    /// lines interleave - this is what a consumer pairs on instead of `name`.
+    var callID: String?
 
     struct TodoLine: Encodable {
         let content: String
@@ -158,15 +161,19 @@ struct EventLine: Encodable {
             type = "reasoning"; self.text = text
         case .roundCompleted(let hadToolCalls):
             type = "round_completed"; self.hadToolCalls = hadToolCalls
-        case .toolStarted(let name, let input):
+        case .toolStarted(let name, let input, let callID):
             type = "tool_started"; self.name = name; self.input = input
-        case .toolProgress(let name, let subagent, let delta):
+            self.callID = callID?.uuidString
+        case .toolProgress(let name, let subagent, let delta, let callID):
             type = "tool_progress"; self.name = name; self.subagent = subagent; self.delta = delta
-        case .toolCompleted(let name, let result, let imageURL, _):
+            self.callID = callID?.uuidString
+        case .toolCompleted(let name, let result, let imageURL, _, let callID):
             type = "tool_completed"; self.name = name; self.result = result
             self.imageURL = imageURL?.absoluteString
-        case .toolFailed(let name, let error):
+            self.callID = callID?.uuidString
+        case .toolFailed(let name, let error, let callID):
             type = "tool_failed"; self.name = name; self.error = error
+            self.callID = callID?.uuidString
         case .todosUpdated(let items):
             type = "todos"; todos = items.map { TodoLine(content: $0.content, status: $0.status.rawValue) }
         case .contextCompacted(let before, let after):

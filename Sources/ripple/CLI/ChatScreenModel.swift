@@ -546,14 +546,17 @@ final class Assistant {
         case .token(let chunk, _): tokenCount += 1; noteToken(); appendAnswer(chunk)
         case .reasoningToken(let chunk): noteToken(); appendReasoning(chunk)
         case .roundCompleted: break
-        case .toolStarted(let name, let input):
+        case .toolStarted(let name, let input, let callID):
             closeText()
             blocks.append(.step(Step(kind: .tool(name: name, detail: input, output: "",
-                                                 ok: true, done: false, subagent: Self.subagent(name, input)))))
-        case .toolProgress(_, _, let delta): appendToolOutput(delta, done: false, ok: true)
-        case .toolCompleted(_, let result, _, let diff):
-            appendToolOutput(result, done: true, ok: true, replace: true, diff: diff)
-        case .toolFailed(_, let error): appendToolOutput(error, done: true, ok: false, replace: true)
+                                                 ok: true, done: false, subagent: Self.subagent(name, input)),
+                callID: callID)))
+        case .toolProgress(_, _, let delta, let callID):
+            appendToolOutput(delta, done: false, ok: true, callID: callID)
+        case .toolCompleted(_, let result, _, let diff, let callID):
+            appendToolOutput(result, done: true, ok: true, replace: true, diff: diff, callID: callID)
+        case .toolFailed(_, let error, let callID):
+            appendToolOutput(error, done: true, ok: false, replace: true, callID: callID)
         case .todosUpdated: closeText() // the plan lives in the pinned panel, not the transcript
         case .contextCompacted: break // surfaced as a transcript note by the turn, not this block
         case .failed(let message): failure = message
@@ -621,11 +624,18 @@ final class Assistant {
         openReasoning?.append(text)
     }
 
-    private func appendToolOutput(_ text: String, done: Bool, ok: Bool, replace: Bool = false, diff: FileDiff? = nil) {
+    /// Fill in a tool step's output. `callID` names the call this belongs to - the round's tools
+    /// can run in parallel, so several steps are open at once and "the last unfinished one" is no
+    /// longer the right card. Without an id (an event a host synthesized) fall back to that.
+    private func appendToolOutput(
+        _ text: String, done: Bool, ok: Bool, replace: Bool = false,
+        diff: FileDiff? = nil, callID: UUID? = nil
+    ) {
         for block in blocks.reversed() {
             guard case .step(let step) = block,
                   case .tool(let name, let detail, let output, _, let isDone, let sub) = step.kind,
                   !isDone else { continue }
+            if let callID, step.callID != callID { continue }
             step.kind = .tool(name: name, detail: detail,
                               output: replace ? text : output + text, ok: ok, done: done, subagent: sub)
             if let diff { step.diff = diff }
@@ -656,8 +666,14 @@ final class Step {
     var diff: FileDiff? // an edit_file's line diff, rendered as a diff card (nil for other tools)
     let startedAt = Date()
     var seconds: Double? // wall-clock once the call finishes
+    /// The tool call this step shows, so progress and results reach the right card when a round
+    /// runs several tools at once. `nil` for a step rebuilt from a persisted transcript.
+    let callID: UUID?
 
-    init(kind: Kind) { self.kind = kind }
+    init(kind: Kind, callID: UUID? = nil) {
+        self.kind = kind
+        self.callID = callID
+    }
 }
 
 extension ChatScreen {
