@@ -8,6 +8,27 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Added
+
+- **Tools that ran at the same time are marked `∥N` on their cards.** A round's read-only tools
+  (`grep`, `ls`, `tree`, reads, `git_*`) now execute concurrently in DeepAgents, but three cards
+  each reading 0.1s are indistinguishable from three sequential calls - the round costs one wait
+  instead of three and nothing said so. The marker rides the card's top border next to the
+  duration, in the accent color, and shows the size of the group. A call that ran on its own shows
+  nothing, so ordinary rounds are unchanged.
+- **`stream-json` lines carry `callID`, and `tool_started` lines a `batchID`.** A round's parallel
+  calls interleave - three `tool_started` for `read_file`, then their `tool_completed` lines in
+  whatever order the reads finish - so a consumer must pair on `callID` rather than on `name`.
+  `batchID` is shared by the calls that ran together and absent from those that ran alone.
+
+### Fixed
+
+- **A tool's result reaches the card it belongs to.** The transcript matched a result to "the last
+  unfinished step", which was unambiguous only while a round's tools ran one at a time. With
+  several open at once it attached results, streamed progress and failures to whichever card
+  happened to be last. Steps now route on the tool call's id, falling back to the old rule for a
+  step restored from a saved session, which has no call to name.
+
 ## [0.5.0] - 2026-08-06
 
 ### Added
