@@ -77,6 +77,26 @@ struct ModelHubTests {
 
     // MARK: - RippleModelResolution
 
+    /// Models now report the context window their card documents rather than a pre-shrunk one, so
+    /// this threshold is what keeps a session inside what the machine can carry - and it has to be
+    /// tunable, because 262k on the qwen3_5 family is far past what a laptop will hold.
+    @Test("compactionPercent defaults to 80 and is clamped to a usable range")
+    func compactionPercentIsConfigurableAndClamped() throws {
+        let project = tempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 80)
+
+        try RippleAgentConfig.saveCompactionPercent(60, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 60)
+
+        // 100 would let the window fill before compaction could ever run; 0 would compact forever.
+        try RippleAgentConfig.saveCompactionPercent(100, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 99)
+        try RippleAgentConfig.saveCompactionPercent(0, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 10)
+    }
+
     @Test("configuredVisionID is off until the project picks a vision model")
     func configuredVisionIDIsOptIn() throws {
         let project = tempDir()

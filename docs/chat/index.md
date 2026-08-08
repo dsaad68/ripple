@@ -33,7 +33,7 @@ The top bar shows, from left to right:
 - **Working directory** - the directory `ripple` was launched from
 - **Context meter** - percentage of the model's context window consumed so far
 
-The context meter updates after every turn. When it approaches 85%, the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
+The context meter updates after every turn. When it approaches 80% (configurable via `compactionPercent`), the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
 
 ### Transcript
 

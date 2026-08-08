@@ -15,7 +15,7 @@ For full detail on each command, see [Slash commands](../chat/slash-commands.md)
 | `/tools` | Browse all agent tools grouped by capability (two-level browser: toolset - tools). Covers both built-in tools and MCP tools. |
 | `/mcp` | Inspect MCP servers and their tools; sign in with OAuth (`r`) or log out (`x`). See [MCP servers](../mcp.md). |
 | `/config` | Edit capabilities, sandbox mode, and logging for the current project. Changes are saved to `.ripple/settings.json`. See [Configuration](../config/index.md). |
-| `/compact` | Summarize older turns to free context window space. Equivalent to the automatic compaction that fires at ~85% context usage. See the compaction guide. |
+| `/compact` | Summarize older turns to free context window space. Equivalent to the automatic compaction that fires at 80% context usage (configurable via `compactionPercent`). See the compaction guide. |
 | `/fresh` | Start a new conversation - mints a fresh session id. The current session remains resumable with `--resume`. |
 | `/reset` | Alias for `/fresh`. |
 | `/clear` | Clear the screen. Does not affect the session id or message history. |

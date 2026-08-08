@@ -8,6 +8,17 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Added
+
+- **A `/config` **Context** tab sets when the conversation is compacted**, cycling 20-90% with
+  space and showing what the threshold costs on the loaded model (`20% - 52k tokens`). Persisted as
+  `compactionPercent` in `settings.json` (default 80, accepted range 10-99, project settings then
+  `~/.ripple`). Each model now reports the context window its own card documents instead of a
+  pre-shrunk one - 131,072 on LFM2.5-2.6B, 128,000 on 8B-A1B and Gemma 4, 262,144 on Ornith and
+  Qwen3.6 - so this threshold, not a smaller declared window, is what decides how large a
+  conversation may get. It matters most on those large-window models: 80% of 262k is past what a
+  laptop will carry, so lower it there and on any memory-tight machine.
+
 ### Changed
 
 - **Vision is off by default; turn it on in `/model`'s Select tab.** The `vision` subagent is a

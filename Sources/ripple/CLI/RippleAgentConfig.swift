@@ -254,6 +254,30 @@ enum RippleAgentConfig {
         try saveInt("visionIdleMinutes", minutes, workingDirectory: workingDirectory)
     }
 
+    /// Default percentage of the context window at which the conversation is compacted.
+    static let defaultCompactionPercent = 80
+
+    /// Percentage of the active model's context window at which automatic compaction fires.
+    /// `settings.json` `compactionPercent`, project then `~/.ripple`; defaults to
+    /// ``defaultCompactionPercent``.
+    ///
+    /// This is the setting that keeps a session inside what the machine can carry, now that each
+    /// model reports the context window its card documents rather than a pre-shrunk one - some of
+    /// those windows (262k on the qwen3_5 family) are far past what a laptop will hold, so lower it
+    /// on a memory-tight machine. Clamped to 10...99: at 100 compaction could never run before the
+    /// window was already full, and very low values would compact on almost every turn.
+    static func loadCompactionPercent(workingDirectory: URL) -> Int {
+        for url in settingsSources(workingDirectory: workingDirectory) {
+            if let value = decodeInt("compactionPercent", url) { return min(99, max(10, value)) }
+        }
+        return defaultCompactionPercent
+    }
+
+    /// Persist the compaction threshold into the project `settings.json` `compactionPercent` key.
+    static func saveCompactionPercent(_ percent: Int, workingDirectory: URL) throws {
+        try saveInt("compactionPercent", min(99, max(10, percent)), workingDirectory: workingDirectory)
+    }
+
     private static func loadIdleMinutes(_ key: String, workingDirectory: URL) -> Int {
         for url in settingsSources(workingDirectory: workingDirectory) {
             if let value = decodeInt(key, url) { return value }
