@@ -172,6 +172,7 @@ with ←/→ and space acts on the highlighted row:
 - **Lazy Tools** - turn lazy tools on, pick the retriever and how many matches a search returns, and
   move each toolset and MCP server between core and auxiliary.
 - **Sandbox** - the container sandbox mode and its image.
+- **Context** - how full the context may get before older turns are summarized.
 - **Cache** - the prefill cache switch, its limits, and what it is holding per model.
 
 Changes made in `/config` are written back to the project `settings.json`. The MCP tier is stored

@@ -8,6 +8,8 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-09
+
 ### Added
 
 - **`/config` → Lazy Tools: choose which tools are worth prefilling.** A new tab with the feature

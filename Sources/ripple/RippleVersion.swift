@@ -5,7 +5,7 @@ import DeepAgents
 /// so the two version numbers normally match.
 enum RippleVersion {
     /// Semantic version string, e.g. "0.5.0".
-    static let current = "0.6.0"
+    static let current = "0.7.0"
 
     /// Printed by `ripple --version`: ripple's version and the DeepAgents version it uses.
     static let versionLine = "ripple \(current) (DeepAgents-swift \(DeepAgentsVersion.current))"
