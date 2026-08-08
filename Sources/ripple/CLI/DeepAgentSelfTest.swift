@@ -145,7 +145,7 @@ public enum DeepAgentSelfTest {
         var tools: [String] = []
         for await event in events {
             switch event {
-            case .toolStarted(let name, _): tools.append(name)
+            case .toolStarted(let name, _, _, _): tools.append(name)
             default: break
             }
         }

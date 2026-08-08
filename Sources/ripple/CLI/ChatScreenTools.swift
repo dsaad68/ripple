@@ -27,16 +27,16 @@ extension ChatScreen {
     }
 
     /// Build the `/mcp` overview: one group per configured MCP server, subtitled with its
-    /// transport, auth, and approval mode, listing the tools that server contributes (matched by
-    /// the namespaced `server__tool` dispatch prefix). The tool details come from the live agent.
+    /// transport, auth, and approval mode, listing the tools that server contributes (attributed
+    /// via `ServerScopedTool`, never by dispatch-name prefix - two server names can sanitize onto
+    /// one prefix). The tool details come from the live agent.
     func makeMCPBrowser() -> ToolsBrowser {
         let gated = agent.middleware.compactMap { $0 as? HumanInTheLoopMiddleware }.first?.interruptOn ?? [:]
         let mcpTools = agent.middleware.first { $0.name == "mcp" }?.tools ?? []
 
         let statusByName = Dictionary(mcpStatuses.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         let groups: [ToolsBrowser.Group] = mcpServers.map { server in
-            let prefix = MCPTool.dispatchPrefix(forServer: server.name)
-            let tools = mcpTools.filter { $0.name.hasPrefix(prefix) }.map { toolInfo($0, gated: gated) }
+            let tools = toolsFromServer(server.name, in: mcpTools).map { toolInfo($0, gated: gated) }
             var bits = [server.kind == .http ? "HTTP" : "stdio"]
             if server.kind == .http { bits.append(server.auth == .oauth ? "OAuth" : "Headers") }
             bits.append("approval: \(server.approvalMode.label)")
@@ -300,6 +300,12 @@ extension ChatScreen {
                 footer = "enter save image · esc cancel"
             } else if config?.current?.isContainer == true {
                 footer = "←→ tabs · ↑↓ move · space cycle · e image · x default · enter/esc save"
+            } else if let row = config?.current, config?.modelID(of: row) != nil || row.id == ConfigEditor.clearRowID {
+                footer = "←→ tabs · ↑↓ move · x delete · enter/esc save & apply"
+            } else if config?.current?.id == ConfigEditor.snapshotsRowID
+                || config?.current?.id == ConfigEditor.sizeRowID
+                || config?.current?.id == ConfigEditor.compactionRowID {
+                footer = "←→ tabs · ↑↓ move · space cycle · enter/esc save & apply"
             } else {
                 footer = "←→ tabs · ↑↓ move · space toggle · enter/esc save & apply"
             }

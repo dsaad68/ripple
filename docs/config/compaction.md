@@ -16,16 +16,31 @@ with many tools compacts at the right time rather than overflowing while the raw
 still looks small.
 
 Token counts are approximate (roughly 4 characters per token, uniform across all backends, since
-no backend exposes a live tokenizer counter). The 15% headroom below the trigger threshold is
+no backend exposes a live tokenizer counter). The 20% headroom below the trigger threshold is
 sized to absorb this imprecision.
 
 ---
 
 ## Automatic compaction
 
-Ripple automatically compacts the conversation when the context meter reaches **85%** of the
+Ripple automatically compacts the conversation when the context meter reaches **80%** of the
 model's context window. The compaction happens transparently before the next model call: the
 trimmed history is both what the model receives for that turn and what gets persisted to disk.
+
+Change it on `/config`'s **Context** tab (space cycles the threshold, and the row shows what it
+costs on the loaded model), or set `compactionPercent` in `settings.json` directly (project
+settings first, then `~/.ripple`; accepted range 10-99):
+
+```json
+{
+  "compactionPercent": 60
+}
+```
+
+Lower it on a memory-tight machine. Each model reports the context window its own card documents -
+131,072 on LFM2.5-2.6B, 128,000 on 8B-A1B and Gemma 4, 262,144 on Ornith and Qwen3.6 - rather than a
+pre-shrunk number, so this threshold is what decides how large a conversation is allowed to get
+before it is compacted. A 262k window is far past what a laptop will hold in practice.
 
 You will see a dim transcript note with the before/after token sizes and the path where the
 originals were saved. The context meter drops noticeably after compaction.
@@ -107,7 +122,7 @@ The middleware is wired in by default. Its tunable parameters are:
 
 | Knob | Default | Meaning |
 |---|---|---|
-| `triggerFraction` | `0.85` | Context-window fraction at which automatic compaction fires |
+| `triggerFraction` | `0.80` | Context-window fraction at which automatic compaction fires |
 | `fallbackContextWindow` | `32768` | Window assumed when the model does not report one |
 | `keepRecentMessages` | `6` | Upper bound on how many recent messages the tail keeps |
 | `keepRecentFraction` | `0.25` | Token ceiling on the tail as a fraction of the window |
@@ -123,7 +138,7 @@ facts learned from tool calls, and the current state plus what remains to do.
 ## Known limitations
 
 **Approximate token accounting.** The char-based estimate can drift from the true token count.
-The 15% headroom is intended to cover this, but very dense content (code, JSON) may compact
+The 20% headroom is intended to cover this, but very dense content (code, JSON) may compact
 slightly later than expected.
 
 **Message granularity.** Compaction cuts at message boundaries and cannot split a single message.

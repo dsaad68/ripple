@@ -9,7 +9,7 @@ Slash commands give you live control over the agent's configuration, tools, and 
 | `/model` | Model picker - choose the planner model, set idle timeout, browse and download local models, manage remote models |
 | `/tools` | Two-level tool browser - all agent tools grouped by capability set |
 | `/mcp` | MCP server list - servers, their tools, and per-server approval mode |
-| `/config` | Config editor - capabilities, sandbox mode, and logging |
+| `/config` | Config editor - capabilities, sandbox mode, context compaction, prefill cache, and logging |
 | `/compact` | Compact the current conversation immediately |
 | `/help` | Keyboard reference and command list |
 | `/fresh` | Start a new conversation (mints a fresh session id) |
@@ -62,14 +62,50 @@ See [MCP servers](../mcp.md) for configuration details, transport types, and tro
 
 An interactive editor for the session's live configuration:
 
-- **Capabilities** - enable or disable middleware (e.g. clipboard integration, screenshot access).
+- **Capabilities** - enable or disable middleware (e.g. clipboard integration, screenshot access),
+  and configure the JSONL debug transcript (**Logging**).
 - **Sandbox** - set the sandbox mode (`off`, `failover`, `container-only`).
-- **Prefill cache** - keep the reusable prompt prefix (system prompt + tool schemas KV) on disk
-  under `~/.cache/deepagents/prefix-kv`, so a fresh launch skips the multi-second prompt prefill.
-  On by default; turn it off to reclaim the disk space (snapshots can be a few hundred MB per
-  model). Persisted as `prefixKVCache` in `settings.json` and honored by headless `ripple -p`
-  runs too.
-- **Logging** - configure the JSONL debug transcript directory.
+- **Context** - how full the context may get before older turns are summarized.
+- **Cache** - the on-disk prefill cache: whether it runs, how much room it may take, and what it is
+  currently holding.
+
+### The Context tab
+
+| Row | Key | What it does |
+|---|---|---|
+| **Compact at** | `space` | The share of the model's context window that may fill before compaction runs, cycling 20/30/40/50/60/70/80/90%. Shows what it costs on the loaded model, e.g. `20% - 52k tokens`. Persisted as `compactionPercent`. |
+
+Each model reports the context window its own card documents rather than a pre-shrunk one - 32k on
+most LFM2.5 rows, 128k on 8B-A1B and Gemma 4, 131k on LFM2.5-2.6B, 262k on Ornith and Qwen3.6 - so
+this threshold, not a smaller declared window, is what decides how large a conversation may grow.
+
+That matters most on the large-window models: at the 80% default a 262k window means roughly 210k
+tokens before the first compaction, which is far past what a laptop will carry. Lower it on those,
+or on any memory-tight machine. See [Context & compaction](../config/compaction.md).
+
+### The Cache tab
+
+Ripple keeps the reusable prompt prefix (system prompt + tool schemas KV) under
+`~/.cache/deepagents/prefix-kv`, so a fresh launch resumes it and skips the multi-second prompt
+prefill. Snapshots run to a few hundred MB per model, so the tab shows the cost and lets you take
+it back:
+
+| Row | Key | What it does |
+|---|---|---|
+| **Prefill cache** | `space` | On or off. Off writes nothing new; what is already saved stays. Persisted as `prefixKVCache`. |
+| **Snapshots** | `space` | How many saved prefixes to keep **per model**, cycling 2/4/6/8/12. Per model, so a planner you use occasionally keeps its warm prefix instead of being evicted by the one you use all day. Persisted as `prefixKVSnapshotsPerModel`. |
+| **Size limit** | `space` | Ceiling on the snapshots' total size, cycling 1/2/4/8/16 GB and "no limit". The oldest go first once it is passed; the newest is never evicted. Persisted as `prefixKVMaxGigabytes`. |
+| **All models** | `x` | The total, and deletes everything. |
+| One row per model | `x` | That model's size, and deletes its saved prefixes. |
+
+Both limits are needed: a count alone does not bound the directory, because one model's snapshot
+can be larger than another model's whole allowance. Lowering either prunes immediately rather than
+at the next save, so the space comes back while you are still looking at the panel.
+
+Deleting is not destructive in any lasting sense - the cache is derived, so it costs one slower
+turn per model and nothing else. There is no confirmation prompt for that reason.
+
+All of these are honored by headless `ripple -p` runs too.
 
 Changes made here are applied immediately for the current session and written back to `settings.json`. See [Configuration (overview)](../config/index.md) for the full settings schema.
 
@@ -80,7 +116,7 @@ Changes made here are applied immediately for the current session and written ba
 Triggers context compaction immediately, regardless of how full the context window currently is. Ripple summarizes the older turns of the conversation into a single summary turn, preserves the recent tail verbatim, and offloads the original messages to disk so nothing is lost.
 
 !!! tip
-    Compaction also fires automatically at 85% of the model's context window. Use `/compact` early when you know the conversation is about to grow large (e.g. before a long coding session) to keep the context meter low.
+    Compaction also fires automatically at 80% of the model's context window (`compactionPercent` in `settings.json`). Use `/compact` early when you know the conversation is about to grow large (e.g. before a long coding session) to keep the context meter low.
 
 See [Context & compaction](../config/compaction.md) for details on the summarization strategy, configuration knobs, and recovery of original messages.
 

@@ -7,6 +7,14 @@ import Foundation
 extension ChatScreen {
     // MARK: - Banner
 
+    /// The vision model the agent actually runs with, which is none unless the project turned it on
+    /// (see ``RippleModelResolution/configuredVisionID(workingDirectory:)``). The banner reports the
+    /// running configuration, so it must not name the variant's suggested VLM while vision is off.
+    var configuredVisionName: String {
+        guard let workingDirectory else { return "" }
+        return RippleModelResolution.configuredVisionID(workingDirectory: workingDirectory)
+    }
+
     /// The empty-state launch banner: a two-pane bordered box - brand + loaded models on the left,
     /// getting-started hints on the right - with a gradient "ripple" wordmark that shimmers in on
     /// launch (see `introFrame`). Narrow terminals fall back to a borderless stacked banner.
@@ -16,7 +24,7 @@ extension ChatScreen {
         // whose auth we discovered from a 401 - the same predicate the `/mcp` browser uses.
         let needsAuth = mcpServers.filter { mcpRuntime?.authState($0) == .needsAuth }.map(\.name)
         return Self.bannerBox(
-            width: width, planner: plannerName, vision: Self.name(variant.visionModelID),
+            width: width, planner: plannerName, vision: Self.name(configuredVisionName),
             cwd: abbreviatedCWD(), mcp: mcpServers.map(\.name), needsAuth: needsAuth,
             instructions: instructionFiles, introFrame: introFrame
         )
@@ -118,7 +126,7 @@ extension ChatScreen {
             Line("  " + Paint.fg(141, "◇ ") + Self.rippleWordmark("ripple", frame: introFrame)
                 + Paint.fg(240, "  ·  on-device deep agent")),
             Line("  " + Paint.fg(245, "main agent ") + Paint.fg(252, plannerName)
-                + Paint.fg(245, "   vision ") + Paint.fg(252, Self.name(variant.visionModelID)))
+                + Paint.fg(245, "   vision ") + Paint.fg(252, Self.name(configuredVisionName)))
         ]
         if !instructionFiles.isEmpty {
             out.append(Line("  " + Paint.fg(238, "instructions  ")

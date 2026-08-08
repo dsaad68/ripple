@@ -16,6 +16,7 @@ extension ChatScreen {
         case 0x20: activateConfigRow() // space: toggle / cycle the capability or sandbox
         case 0x65 where config?.current?.isContainer == true: beginImageEdit() // 'e': edit the container image
         case 0x78 where config?.current?.isContainer == true: config?.policy.sandboxImage = nil // 'x': reset to default
+        case 0x78: deleteHighlightedCache() // 'x': delete the highlighted model's saved prefixes
         case 0x03: applyConfig() // ctrl-c closes the editor (doesn't quit)
         case 0x04: quit = true // ctrl-d
         default: break
@@ -27,9 +28,40 @@ extension ChatScreen {
         config?.toggle()
     }
 
-    /// Build the `/config` editor seeded with the live policy + developer-log and prefix-cache toggles.
+    /// Build the `/config` editor seeded with the live policy + developer-log and prefix-cache
+    /// toggles, and with what the prefix store currently holds so the Cache tab has something to
+    /// show the moment it is opened.
     func makeConfigEditor() -> ConfigEditor {
-        ConfigEditor(policy: policy, logMessages: logMessages, prefixKVCache: prefixKVCache)
+        var editor = ConfigEditor(
+            policy: policy, logMessages: logMessages, prefixKVCache: prefixKVCache,
+            snapshotsPerModel: prefixKVSnapshots, maxGigabytes: prefixKVMaxGigabytes,
+            compactionPercent: workingDirectory.map {
+                RippleAgentConfig.loadCompactionPercent(workingDirectory: $0)
+            } ?? RippleAgentConfig.defaultCompactionPercent,
+            // So the Context row can say what the percentage costs in tokens on this model.
+            contextWindowTokens: agent.contextWindowTokens
+        )
+        editor.inventory = PrefixKVStore.inventory()
+        return editor
+    }
+
+    /// `x` on a Cache row: delete that model's saved prefixes, or every one of them on the "All
+    /// models" row, then re-scan so the sizes shown are the sizes on disk. No confirmation - the
+    /// cache is derived, and the cost of being wrong is one slower turn.
+    private func deleteHighlightedCache() {
+        guard let editor = config, let row = editor.current else { return }
+        if row.id == ConfigEditor.clearRowID {
+            PrefixKVStore.removeAll()
+        } else if let model = editor.modelID(of: row) {
+            PrefixKVStore.removeAll(modelID: model)
+        } else {
+            return
+        }
+        config?.inventory = PrefixKVStore.inventory()
+        // The rows just shrank under the cursor; keep it inside them.
+        if let rows = config?.rows.count, let index = config?.index, index >= rows {
+            config?.index = max(0, rows - 1)
+        }
     }
 
     /// Begin typing a custom container image on the Container row: load the current override (empty for
@@ -66,20 +98,46 @@ extension ChatScreen {
         let updated = editor.policy
         let logChanged = editor.logMessages != logMessages
         let prefixChanged = editor.prefixKVCache != prefixKVCache
+        let limitsChanged = editor.snapshotsPerModel != prefixKVSnapshots
+            || editor.maxGigabytes != prefixKVMaxGigabytes
+        // The threshold is read when the agent is built, so a change has to be saved before the
+        // rebuild below picks it up.
+        let compactionChanged = workingDirectory.map {
+            editor.compactionPercent != RippleAgentConfig.loadCompactionPercent(workingDirectory: $0)
+        } ?? false
         let imageChanged = updated.sandboxImage != policy.sandboxImage
         let policyOrLogChanged = updated != policy || logChanged
         policy = updated
         logMessages = editor.logMessages
         prefixKVCache = editor.prefixKVCache
-        // The prefix-cache toggle takes effect on the next turn - no agent rebuild needed.
+        prefixKVSnapshots = editor.snapshotsPerModel
+        prefixKVMaxGigabytes = editor.maxGigabytes
+        // The prefix-cache settings take effect on the next turn - no agent rebuild needed.
         if prefixChanged { PrefixKVStore.isEnabledOverride = prefixKVCache }
+        if limitsChanged {
+            applyPrefixKVLimits()
+            // Apply them now rather than at the next save, so a lowered limit frees the space
+            // while the user is still looking at the panel.
+            PrefixKVStore.pruneNow()
+        }
         if updated.sandbox.isEnabled { sandboxEverEnabled = true }
         if let workingDirectory {
             try? RippleAgentConfig.savePolicy(updated, workingDirectory: workingDirectory)
             if logChanged { try? RippleAgentConfig.saveLogMessages(logMessages, workingDirectory: workingDirectory) }
             if prefixChanged { try? RippleAgentConfig.savePrefixKVCache(prefixKVCache, workingDirectory: workingDirectory) }
+            if limitsChanged {
+                try? RippleAgentConfig.savePrefixKVLimits(
+                    snapshotsPerModel: prefixKVSnapshots, maxGigabytes: prefixKVMaxGigabytes,
+                    workingDirectory: workingDirectory
+                )
+            }
+            if compactionChanged {
+                try? RippleAgentConfig.saveCompactionPercent(
+                    editor.compactionPercent, workingDirectory: workingDirectory
+                )
+            }
         }
-        guard policyOrLogChanged else { return }
+        guard policyOrLogChanged || compactionChanged else { return }
         // A new image only takes effect on a fresh container: the sandbox adopts an existing one by name
         // and ignores the image (see AppleContainerSandbox.ensureContainer), so tear the current one down
         // first - when one may exist and nothing is running in it - before rebuilding the agent.
@@ -91,6 +149,13 @@ extension ChatScreen {
         } else {
             rebuildAgent()
         }
+    }
+
+    /// Mirror the configured limits into the store. Called at startup and whenever `/config`
+    /// changes them, so the settings file - not the framework's defaults - is what bounds the cache.
+    func applyPrefixKVLimits() {
+        PrefixKVStore.maxSnapshotsPerModel = prefixKVSnapshots
+        PrefixKVStore.maxTotalBytes = Int64(prefixKVMaxGigabytes * 1024 * 1024 * 1024)
     }
 
     /// Rebuild the agent for the current planner with the live policy (after a `/config` change),

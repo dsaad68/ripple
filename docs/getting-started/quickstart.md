@@ -142,6 +142,8 @@ ripple -p "List all Swift files" --output-format json --yes | jq '.result'
 
 `stream-json` is useful when you want to display progress in a parent process while still parsing the final result.
 
+Every `tool_*` line carries a `callID`. A round's read-only tools run in parallel, so their lines interleave - three `tool_started` for `read_file`, then their `tool_completed` lines in whatever order the reads finish. Pair on `callID`, not on `name`. The `tool_started` lines of calls that ran together also share a `batchID`; in the chat UI those cards are marked `∥3`.
+
 ### Tool policy in headless mode
 
 In headless mode there is no interactive approval card. Use these flags to control tool access:

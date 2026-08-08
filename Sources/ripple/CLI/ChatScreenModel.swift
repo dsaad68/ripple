@@ -215,11 +215,13 @@ struct ToolsBrowser {
 struct ConfigEditor {
     /// The panel's two tabs, switched with ←/→.
     enum Tab: CaseIterable {
-        case capabilities, sandbox
+        case capabilities, sandbox, context, cache
         var title: String {
             switch self {
             case .capabilities: "Capabilities"
             case .sandbox: "Sandbox"
+            case .context: "Context"
+            case .cache: "Cache"
             }
         }
     }
@@ -242,13 +244,56 @@ struct ConfigEditor {
     /// Working copy of the prefix-KV disk-cache toggle (a Ripple setting, not part of the tool policy).
     var prefixKVCache: Bool
 
-    static let logRowID = "devlog"
-    static let prefixKVRowID = "prefixkv"
+    /// Working copies of the prefix-cache limits (Ripple settings, not part of the tool policy).
+    var snapshotsPerModel: Int
+    var maxGigabytes: Double
+    /// What the store holds, scanned when the editor opens. Empty until then.
+    var inventory: PrefixKVStore.Inventory = .empty
 
-    init(policy: AgentToolPolicy, logMessages: Bool = false, prefixKVCache: Bool = true) {
+    /// Working copy of the compaction threshold, as a percentage of the active model's window.
+    var compactionPercent: Int
+    /// The active planner's context window, so the Context row can show what the percentage works
+    /// out to in tokens. Nil when no model reports one.
+    var contextWindowTokens: Int?
+
+    static let logRowID = "devlog"
+    static let compactionRowID = "compaction"
+    static let prefixKVRowID = "prefixkv"
+    static let snapshotsRowID = "prefixkv.snapshots"
+    static let sizeRowID = "prefixkv.size"
+    static let clearRowID = "prefixkv.clear"
+    /// A per-model usage row carries its model id after this prefix, so `x` knows what to delete.
+    static let modelRowPrefix = "prefixkv.model:"
+
+    /// The thresholds offered on the Compaction row, cycled with space. The low end matters: a model
+    /// reporting the 262k window its card documents will not fit on a laptop anywhere near 80%.
+    static let compactionChoices = [20, 30, 40, 50, 60, 70, 80, 90]
+
+    /// The counts offered on the Snapshots row, cycled with space.
+    static let snapshotChoices = [2, 4, 6, 8, 12]
+    /// The ceilings offered on the Size row, in GB. `0` is "no limit".
+    static let sizeChoices: [Double] = [1, 2, 4, 8, 16, 0]
+
+    init(
+        policy: AgentToolPolicy, logMessages: Bool = false, prefixKVCache: Bool = true,
+        snapshotsPerModel: Int = 6, maxGigabytes: Double = 4,
+        compactionPercent: Int = RippleAgentConfig.defaultCompactionPercent,
+        contextWindowTokens: Int? = nil
+    ) {
+        self.compactionPercent = compactionPercent
+        self.contextWindowTokens = contextWindowTokens
         self.policy = policy
         self.logMessages = logMessages
         self.prefixKVCache = prefixKVCache
+        self.snapshotsPerModel = snapshotsPerModel
+        self.maxGigabytes = maxGigabytes
+    }
+
+    /// A byte count in the same shape the model rows use elsewhere.
+    static func size(_ bytes: Int64) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        if gb >= 1 { return String(format: "%.1f GB", gb) }
+        return String(format: "%.0f MB", Double(bytes) / 1_048_576)
     }
 
     /// The rows shown on the active tab: the capability toggles (+ logging) or the container sandbox.
@@ -258,12 +303,6 @@ struct ConfigEditor {
             return MiddlewareCatalog.all.map { Row(id: $0.id, displayName: $0.displayName, summary: $0.summary) }
                 + [
                     Row(
-                        id: Self.prefixKVRowID, displayName: "Prefill cache",
-                        summary: "Keep the reusable prompt prefix (system prompt + tool schemas KV) on disk "
-                            + "under ~/.cache/deepagents/prefix-kv, so a fresh launch resumes it and skips "
-                            + "the multi-second prompt prefill. Snapshots can be a few hundred MB per model."
-                    ),
-                    Row(
                         id: Self.logRowID, displayName: "Logging",
                         summary: "Write a developer message log (JSONL, with timing and tool steps) to the "
                             + "session folder for debugging. Off by default; separate from the resumable history."
@@ -272,7 +311,93 @@ struct ConfigEditor {
         case .sandbox:
             let container = MiddlewareCatalog.container
             return [Row(id: container.id, displayName: container.displayName, summary: container.summary)]
+        case .context:
+            return [
+                Row(
+                    id: Self.compactionRowID, displayName: "Compact at",
+                    summary: "How full the context may get before older turns are summarized. Each "
+                        + "model reports the window its own card documents rather than a shrunk one, "
+                        + "so this is what decides how large a conversation may grow - and some of "
+                        + "those windows are far past what a laptop holds. Lower it on a tight "
+                        + "machine, or on a model with a very large window. Space cycles."
+                )
+            ]
+        case .cache:
+            return cacheRows
         }
+    }
+
+    /// What the compaction threshold works out to for the active model, e.g. "80% - 105k tokens".
+    /// Rounded to thousands rather than grouped: a locale-aware separator renders 52428 as "52.428"
+    /// under a German regional format, which reads as a decimal.
+    var compactionSummary: String {
+        guard let window = contextWindowTokens else { return "\(compactionPercent)%" }
+        let tokens = window * compactionPercent / 100
+        let rendered = tokens >= 1000 ? "\(tokens / 1000)k" : "\(tokens)"
+        return "\(compactionPercent)% - \(rendered) tokens"
+    }
+
+    /// The Cache tab: the on/off switch, the two limits, then what the store is actually holding.
+    /// Usage rows are informational - `x` on one deletes that model's snapshots.
+    private var cacheRows: [Row] {
+        var rows = [
+            Row(
+                id: Self.prefixKVRowID, displayName: "Prefill cache",
+                summary: "Keep the reusable prompt prefix (system prompt + tool schemas KV) on disk "
+                    + "under ~/.cache/deepagents/prefix-kv, so a fresh launch resumes it and skips "
+                    + "the multi-second prompt prefill. Off writes nothing; what is already saved stays."
+            ),
+            Row(
+                id: Self.snapshotsRowID, displayName: "Snapshots",
+                summary: "How many saved prefixes to keep per model. Per model, not overall, so a "
+                    + "planner you use occasionally keeps its warm prefix instead of being evicted "
+                    + "by the one you use all day. Space cycles."
+            ),
+            Row(
+                id: Self.sizeRowID, displayName: "Size limit",
+                summary: "Ceiling on the snapshots' total size - the oldest go first once it is "
+                    + "passed, and the newest is never evicted. A count alone would not bound this: "
+                    + "one model's snapshot can run to a few hundred MB. Space cycles."
+            )
+        ]
+        guard !inventory.models.isEmpty || inventory.unattributedBytes > 0 else { return rows }
+        rows.append(
+            Row(
+                id: Self.clearRowID, displayName: "All models",
+                summary: "Everything the store is holding. Press x to delete all of it - it is "
+                    + "derived, so this costs one slower turn per model and nothing else."
+            )
+        )
+        for usage in inventory.models {
+            rows.append(
+                Row(
+                    id: Self.modelRowPrefix + usage.modelID,
+                    displayName: MlxModel.catalog.first { $0.id == usage.modelID }?.shortName ?? usage.modelID,
+                    summary: "\(usage.modelID) - \(usage.snapshotCount) snapshot"
+                        + (usage.snapshotCount == 1 ? "" : "s")
+                        + ", \(usage.traceCount) trace" + (usage.traceCount == 1 ? "" : "s")
+                        + ". Press x to delete this model's saved prefixes."
+                )
+            )
+        }
+        if inventory.unattributedBytes > 0 {
+            rows.append(
+                Row(
+                    id: Self.modelRowPrefix, displayName: "Other files",
+                    summary: "\(inventory.unattributedCount) file"
+                        + (inventory.unattributedCount == 1 ? "" : "s")
+                        + " that name no model, usually left by an older build. Removed by All models."
+                )
+            )
+        }
+        return rows
+    }
+
+    /// The model id a usage row deletes, or nil for any other row.
+    func modelID(of row: Row) -> String? {
+        guard row.id.hasPrefix(Self.modelRowPrefix) else { return nil }
+        let id = String(row.id.dropFirst(Self.modelRowPrefix.count))
+        return id.isEmpty ? nil : id
     }
 
     var current: Row? { rows.indices.contains(index) ? rows[index] : nil }
@@ -298,6 +423,13 @@ struct ConfigEditor {
     /// so the user's own shell choice is restored once the sandbox is off.
     func isLocked(_ row: Row) -> Bool { row.id == "shell" && policy.sandbox.isEnabled }
 
+    /// The next value after `current` in `choices`, wrapping. An unrecognised current value (a
+    /// hand-edited settings.json) lands on the first choice rather than sticking.
+    static func cycle<T: Equatable>(_ current: T, through choices: [T]) -> T {
+        guard let index = choices.firstIndex(of: current) else { return choices[0] }
+        return choices[(index + 1) % choices.count]
+    }
+
     /// The resolved sandbox image - the configured override, or the built-in default.
     var containerImage: String { policy.sandboxImage ?? AppleContainerSandbox.defaultImage }
 
@@ -306,6 +438,10 @@ struct ConfigEditor {
     func isOn(_ row: Row) -> Bool {
         if row.id == Self.logRowID { return logMessages }
         if row.id == Self.prefixKVRowID { return prefixKVCache }
+        // Not a switch - `stateLabel` shows the threshold instead.
+        if row.id == Self.compactionRowID { return true }
+        // The limits and usage rows aren't switches; `stateLabel` shows their value instead.
+        if isCacheValueRow(row) { return true }
         if row.id == "shell" { return policy.localShellEnabled }
         return row.isContainer ? policy.sandbox.isEnabled : !policy.disabledMiddleware.contains(row.id)
     }
@@ -314,7 +450,23 @@ struct ConfigEditor {
     func stateLabel(_ row: Row) -> String {
         if isLocked(row) { return isOn(row) ? "on - fail over" : "off - container only" }
         if row.isContainer { return policy.sandbox.label }
+        if row.id == Self.compactionRowID { return compactionSummary }
+        if row.id == Self.snapshotsRowID { return "\(snapshotsPerModel) per model" }
+        if row.id == Self.sizeRowID {
+            return maxGigabytes == 0 ? "no limit" : String(format: "%.0f GB", maxGigabytes)
+        }
+        if row.id == Self.clearRowID { return Self.size(inventory.totalBytes) }
+        if let model = modelID(of: row) {
+            return Self.size(inventory.models.first { $0.modelID == model }?.bytes ?? 0)
+        }
+        if row.id == Self.modelRowPrefix { return Self.size(inventory.unattributedBytes) }
         return isOn(row) ? "on" : "off"
+    }
+
+    /// Rows on the Cache tab that carry a value rather than an on/off state.
+    func isCacheValueRow(_ row: Row) -> Bool {
+        row.id == Self.snapshotsRowID || row.id == Self.sizeRowID
+            || row.id == Self.clearRowID || row.id.hasPrefix(Self.modelRowPrefix)
     }
 
     /// Toggle the highlighted capability / sandbox / logging row on space (the container cycles its
@@ -323,8 +475,16 @@ struct ConfigEditor {
         guard let row = current, !isLocked(row) else { return }
         if row.id == Self.logRowID {
             logMessages.toggle()
+        } else if row.id == Self.compactionRowID {
+            compactionPercent = Self.cycle(compactionPercent, through: Self.compactionChoices)
         } else if row.id == Self.prefixKVRowID {
             prefixKVCache.toggle()
+        } else if row.id == Self.snapshotsRowID {
+            snapshotsPerModel = Self.cycle(snapshotsPerModel, through: Self.snapshotChoices)
+        } else if row.id == Self.sizeRowID {
+            maxGigabytes = Self.cycle(maxGigabytes, through: Self.sizeChoices)
+        } else if isCacheValueRow(row) {
+            return // usage rows are read-only; `x` deletes
         } else if row.isContainer {
             policy.sandbox = Self.nextSandbox(policy.sandbox)
         } else if policy.disabledMiddleware.contains(row.id) {
@@ -428,14 +588,18 @@ final class Assistant {
         case .token(let chunk, _): tokenCount += 1; noteToken(); appendAnswer(chunk)
         case .reasoningToken(let chunk): noteToken(); appendReasoning(chunk)
         case .roundCompleted: break
-        case .toolStarted(let name, let input):
+        case .toolStarted(let name, let input, let callID, let batchID):
             closeText()
             blocks.append(.step(Step(kind: .tool(name: name, detail: input, output: "",
-                                                 ok: true, done: false, subagent: Self.subagent(name, input)))))
-        case .toolProgress(_, _, let delta): appendToolOutput(delta, done: false, ok: true)
-        case .toolCompleted(_, let result, _, let diff):
-            appendToolOutput(result, done: true, ok: true, replace: true, diff: diff)
-        case .toolFailed(_, let error): appendToolOutput(error, done: true, ok: false, replace: true)
+                                                 ok: true, done: false, subagent: Self.subagent(name, input)),
+                callID: callID, batchID: batchID)))
+            countBatch(batchID)
+        case .toolProgress(_, _, let delta, let callID):
+            appendToolOutput(delta, done: false, ok: true, callID: callID)
+        case .toolCompleted(_, let result, _, let diff, let callID):
+            appendToolOutput(result, done: true, ok: true, replace: true, diff: diff, callID: callID)
+        case .toolFailed(_, let error, let callID):
+            appendToolOutput(error, done: true, ok: false, replace: true, callID: callID)
         case .todosUpdated: closeText() // the plan lives in the pinned panel, not the transcript
         case .contextCompacted: break // surfaced as a transcript note by the turn, not this block
         case .failed(let message): failure = message
@@ -503,11 +667,30 @@ final class Assistant {
         openReasoning?.append(text)
     }
 
-    private func appendToolOutput(_ text: String, done: Bool, ok: Bool, replace: Bool = false, diff: FileDiff? = nil) {
+    /// Stamp every step of `batchID` with how many calls are now known to be in it, so each card
+    /// can show the size of the group it ran with. The batch announces all of its calls before any
+    /// of them finishes, so the count is settled before the first result lands.
+    private func countBatch(_ batchID: UUID?) {
+        guard let batchID else { return }
+        let siblings = blocks.compactMap { block -> Step? in
+            guard case .step(let step) = block, step.batchID == batchID else { return nil }
+            return step
+        }
+        for step in siblings { step.batchSize = siblings.count }
+    }
+
+    /// Fill in a tool step's output. `callID` names the call this belongs to - the round's tools
+    /// can run in parallel, so several steps are open at once and "the last unfinished one" is no
+    /// longer the right card. Without an id (an event a host synthesized) fall back to that.
+    private func appendToolOutput(
+        _ text: String, done: Bool, ok: Bool, replace: Bool = false,
+        diff: FileDiff? = nil, callID: UUID? = nil
+    ) {
         for block in blocks.reversed() {
             guard case .step(let step) = block,
                   case .tool(let name, let detail, let output, _, let isDone, let sub) = step.kind,
                   !isDone else { continue }
+            if let callID, step.callID != callID { continue }
             step.kind = .tool(name: name, detail: detail,
                               output: replace ? text : output + text, ok: ok, done: done, subagent: sub)
             if let diff { step.diff = diff }
@@ -538,8 +721,20 @@ final class Step {
     var diff: FileDiff? // an edit_file's line diff, rendered as a diff card (nil for other tools)
     let startedAt = Date()
     var seconds: Double? // wall-clock once the call finishes
+    /// The tool call this step shows, so progress and results reach the right card when a round
+    /// runs several tools at once. `nil` for a step rebuilt from a persisted transcript.
+    let callID: UUID?
+    /// The concurrent batch this call ran in, shared with its siblings; `nil` when it ran alone.
+    let batchID: UUID?
+    /// How many calls ran together in that batch, kept up to date as the batch's cards open. `1`
+    /// means "ran on its own", and is what the card renders as no indicator at all.
+    var batchSize = 1
 
-    init(kind: Kind) { self.kind = kind }
+    init(kind: Kind, callID: UUID? = nil, batchID: UUID? = nil) {
+        self.kind = kind
+        self.callID = callID
+        self.batchID = batchID
+    }
 }
 
 extension ChatScreen {

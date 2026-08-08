@@ -208,7 +208,7 @@ enum HeadlessRun {
             case .roundCompleted(let hadToolCalls):
                 rounds += 1
                 if hadToolCalls { roundText = "" } else { finalText = roundText; roundText = "" }
-            case .toolStarted(let name, _):
+            case .toolStarted(let name, _, _, _):
                 tools.append(name)
             case .failed(let message):
                 failure = message

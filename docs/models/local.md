@@ -116,7 +116,7 @@ Two special variant names are also accepted:
 
 | Variant | Meaning |
 |---|---|
-| `default` | The default DeepAgent preset's models (currently LFM2.5 8B-A1B plus the VL 1.6B vision model) |
+| `default` | The default DeepAgent preset's models (currently LFM2.5 8B-A1B; vision is opt-in, so no VLM is fetched until you pick one) |
 | `all` | Every model in Ripple's built-in catalog |
 
 ```sh

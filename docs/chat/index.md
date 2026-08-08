@@ -33,7 +33,7 @@ The top bar shows, from left to right:
 - **Working directory** - the directory `ripple` was launched from
 - **Context meter** - percentage of the model's context window consumed so far
 
-The context meter updates after every turn. When it approaches 85%, the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
+The context meter updates after every turn. When it approaches 80% (configurable via `compactionPercent`), the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
 
 ### Transcript
 
@@ -112,11 +112,13 @@ The agent has access to several built-in tool groups, plus any tools from connec
 | Shell | `shell` (sandboxed or local, depending on mode) |
 | Apple Notes | Read, search, and create notes |
 | Clipboard | Read from and write to the macOS clipboard |
-| Vision | Screenshot and analyze windows or the full screen |
+| Vision | Screenshot and analyze windows or the full screen (needs a vision model - see [Models](../models/index.md)) |
 
 Each tool group is a "capability middleware" - you can disable individual groups in `/config` or via `settings.json`.
 
 Gated tools (shell, reads, writes) pause the turn and show an [approval card](approvals.md) unless the permission mode bypasses them. The `/tools` command lists every tool currently available to the agent, grouped by capability.
+
+When the model asks for several read-only tools in one round - `grep`, `ls` and `tree` together, say - they run **at the same time** rather than one after another, and each of their cards is marked `∥3` for the size of the group. Without the marker three cards that each took 0.1s are indistinguishable from three sequential calls; the point is that the round cost one wait, not three. Writes and anything that changes state keep their place in order and carry no marker. Approvals are still shown one card at a time, so a gated batch asks you about each call in turn.
 
 ---
 

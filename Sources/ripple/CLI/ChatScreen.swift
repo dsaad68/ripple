@@ -38,6 +38,9 @@ final class ChatScreen {
     /// on by default). Applied to ``PrefixKVStore`` at launch and on `/config` changes - it takes
     /// effect on the next turn, no agent rebuild needed.
     var prefixKVCache = true
+    /// Prefix-store limits, mirrored into ``PrefixKVStore`` at startup and on every `/config` apply.
+    var prefixKVSnapshots = 6
+    var prefixKVMaxGigabytes = 4.0
     /// The display name of a model currently cold-loading from disk, or nil (the REPL wires this to
     /// ``MlxModelLoader/loadingModelID``). Read by the working line so a lazy (re)load after an
     /// idle-unload is labeled as the model loading rather than looking like slow prompt processing.
@@ -266,6 +269,13 @@ final class ChatScreen {
         logMessages = workingDirectory.map { RippleAgentConfig.loadLogMessages(workingDirectory: $0) } ?? false
         prefixKVCache = workingDirectory.map { RippleAgentConfig.loadPrefixKVCache(workingDirectory: $0) } ?? true
         PrefixKVStore.isEnabledOverride = prefixKVCache
+        prefixKVSnapshots = workingDirectory.map { RippleAgentConfig.loadPrefixKVSnapshots(workingDirectory: $0) } ?? 6
+        prefixKVMaxGigabytes = workingDirectory
+            .map { RippleAgentConfig.loadPrefixKVMaxGigabytes(workingDirectory: $0) } ?? 4
+        // Inline rather than `applyPrefixKVLimits()`: the init is still mid-flight, so `self` is
+        // not yet callable.
+        PrefixKVStore.maxSnapshotsPerModel = prefixKVSnapshots
+        PrefixKVStore.maxTotalBytes = Int64(prefixKVMaxGigabytes * 1024 * 1024 * 1024)
         sandboxEverEnabled = policy.sandbox.isEnabled
         plannerName = Self.name(variant.textModelID)
     }
