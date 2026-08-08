@@ -8,6 +8,15 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed tool call is drawn as failed.** Tool cards showed a green success tick on calls that
+  had done nothing - `read_file` given a URL rendered as ✓ beside `Error: no file at "https://…"` -
+  because most built-in tools return their errors rather than throwing, and the runtime reported
+  those as completions. Ripple's rendering was already right; it was being told the wrong thing.
+  Fixed in DeepAgents (`ToolOutput.failure`), so the card, the `∥N` grouping and the `stream-json`
+  `tool_failed` lines now agree with what happened.
+
 ### Added
 
 - **A `/config` **Context** tab sets when the conversation is compacted**, cycling 20-90% with
