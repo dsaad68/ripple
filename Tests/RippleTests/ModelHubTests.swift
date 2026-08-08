@@ -77,15 +77,29 @@ struct ModelHubTests {
 
     // MARK: - RippleModelResolution
 
-    @Test("configuredVisionID returns the saved vision model, else the variant default")
-    func configuredVisionIDPrefersSaved() throws {
+    @Test("configuredVisionID is off until the project picks a vision model")
+    func configuredVisionIDIsOptIn() throws {
+        let project = tempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        // Vision costs a second model to download, load and keep resident, so an unconfigured
+        // project runs without one even though the variant suggests a VLM.
+        #expect(RippleModelResolution.configuredVisionID(workingDirectory: project).isEmpty)
+        try RippleAgentConfig.saveVisionModel("vendor/my-vlm", workingDirectory: project)
+        #expect(RippleModelResolution.configuredVisionID(workingDirectory: project) == "vendor/my-vlm")
+    }
+
+    @Test("an unconfigured project downloads the planner only")
+    func requiredModelIDsSkipsVisionUntilItIsTurnedOn() throws {
         let project = tempDir()
         defer { try? FileManager.default.removeItem(at: project) }
         let variant = try #require(DeepAgentVariant.all.first { $0.id == "mispher.deepagent" })
 
-        #expect(RippleModelResolution.configuredVisionID(variant, workingDirectory: project) == variant.visionModelID)
-        try RippleAgentConfig.saveVisionModel("vendor/my-vlm", workingDirectory: project)
-        #expect(RippleModelResolution.configuredVisionID(variant, workingDirectory: project) == "vendor/my-vlm")
+        #expect(RippleModelResolution.requiredModelIDs(variant, workingDirectory: project) == [variant.textModelID])
+        // …and the suggested VLM is fetched once the project turns vision on.
+        try RippleAgentConfig.saveVisionModel(variant.visionModelID, workingDirectory: project)
+        let withVision = RippleModelResolution.requiredModelIDs(variant, workingDirectory: project)
+        #expect(withVision == [variant.textModelID, variant.visionModelID])
     }
 
     @Test("requiredModelIDs downloads a local vision model but skips a remote one")

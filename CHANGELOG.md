@@ -8,6 +8,16 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Changed
+
+- **Vision is off by default; turn it on in `/model`'s Select tab.** The `vision` subagent is a
+  second model to download, load and keep resident, and most sessions never delegate a screenshot
+  to it - so a fresh project now starts without one and fetches no VLM. A preset still suggests the
+  VLM that pairs with it; the Select tab offers that suggestion rather than enabling it unasked.
+  Projects that already set `visionModel` in `settings.json` are unaffected. The banner reports
+  `vision none` until a model is picked, and `ripple model download default` fetches the planner
+  only.
+
 ### Added
 
 - **Tools that ran at the same time are marked `∥N` on their cards.** A round's read-only tools

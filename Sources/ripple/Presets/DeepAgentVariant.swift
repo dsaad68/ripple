@@ -10,41 +10,46 @@ struct DeepAgentVariant: Identifiable, Sendable, Hashable {
     let id: String
     /// Short label for the pill / status (e.g. "DeepAgent").
     let label: String
-    /// Picker subtitle describing the models (e.g. "8B-A1B + vision").
+    /// Picker subtitle describing the models (e.g. "8B-A1B"). Names the planner only - vision is
+    /// opt-in, so a subtitle promising it would be wrong for a default session.
     let detail: String
     /// The planner (text) model that breaks tasks into todos and delegates.
     let textModelID: String
-    /// The `vision` subagent model (VLM) — the only one that can see a forwarded screenshot. Empty
-    /// for a text-only remote variant (no vision subagent).
+    /// The VLM this variant *suggests* for the `vision` subagent - the only model that can see a
+    /// forwarded screenshot. Empty for a text-only remote variant. Suggested, not enabled: vision is
+    /// off until a project picks a model in `/model`'s Select tab, so this is what that tab offers
+    /// rather than what the agent runs. See ``RippleModelResolution/configuredVisionID(workingDirectory:)``.
     let visionModelID: String
     /// True when this variant's models are remote (OpenAI-compatible). The MLX download/cache paths
     /// skip a remote variant — nothing lives on disk to fetch — and its models are built directly
     /// from an ``OpenAIModelConfig`` rather than loaded by ``MlxModelLoader``.
     var isRemote = false
 
-    /// The catalog model ids this variant needs resident — empty for a remote variant.
-    var modelIDs: [String] { isRemote ? [] : [textModelID, visionModelID] }
+    /// The catalog model ids this variant needs resident - empty for a remote variant. Just the
+    /// planner: the suggested VLM is only fetched once a project turns vision on, so listing it here
+    /// would download a second model for a feature that is off.
+    var modelIDs: [String] { isRemote ? [] : [textModelID] }
 
     /// All DeepAgent variants offered in the Ask picker, in display order.
     static let all: [DeepAgentVariant] = [
         DeepAgentVariant(
             id: "mispher.deepagent",
             label: "DeepAgent",
-            detail: "8B-A1B + vision",
+            detail: "8B-A1B",
             textModelID: "LiquidAI/LFM2.5-8B-A1B-MLX-8bit",
             visionModelID: "mlx-community/LFM2.5-VL-1.6B-8bit"
         ),
         DeepAgentVariant(
             id: "mispher.deepagent.instruct",
             label: "DeepAgent (Instruct)",
-            detail: "1.2B Instruct bf16 + vision",
+            detail: "1.2B Instruct bf16",
             textModelID: "LiquidAI/LFM2.5-1.2B-Instruct-MLX-bf16",
             visionModelID: "mlx-community/LFM2.5-VL-1.6B-8bit"
         ),
         DeepAgentVariant(
             id: "mispher.deepagent.thinking",
             label: "DeepAgent (Thinking)",
-            detail: "1.2B Thinking bf16 + vision",
+            detail: "1.2B Thinking bf16",
             textModelID: "LiquidAI/LFM2.5-1.2B-Thinking-MLX-bf16",
             visionModelID: "mlx-community/LFM2.5-VL-1.6B-8bit"
         ),
@@ -53,7 +58,7 @@ struct DeepAgentVariant: Identifiable, Sendable, Hashable {
         DeepAgentVariant(
             id: "mispher.deepagent.ornith",
             label: "DeepAgent (Ornith)",
-            detail: "Ornith 9B reasoning + vision",
+            detail: "Ornith 9B reasoning",
             textModelID: "mlx-community/Ornith-1.0-9B-4bit",
             visionModelID: "mlx-community/Ornith-1.0-9B-4bit"
         ),
@@ -63,7 +68,7 @@ struct DeepAgentVariant: Identifiable, Sendable, Hashable {
         DeepAgentVariant(
             id: "mispher.deepagent.gemma4",
             label: "DeepAgent (Gemma 4)",
-            detail: "Gemma 4 E4B reasoning + vision",
+            detail: "Gemma 4 E4B reasoning",
             textModelID: "mlx-community/gemma-4-e4b-it-8bit",
             visionModelID: "mlx-community/LFM2.5-VL-1.6B-8bit"
         )

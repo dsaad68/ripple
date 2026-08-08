@@ -64,6 +64,11 @@ Type `/model` at the prompt to open the model overlay. It has three tabs:
     as a single list. Selecting one makes it active for the session and writes `selectedModel` to
     `settings.json` so the choice persists across restarts. You can also set the idle timeout here.
 
+    This tab is also where you turn **vision** on. Vision is off by default: the `vision` subagent
+    is a second model to download, load and keep resident, and most sessions never delegate a
+    screenshot to it. Pick a VLM here to enable it (written to `settings.json` as `visionModel`);
+    until you do, the banner reports `vision none` and no VLM is fetched.
+
 === "Local"
 
     Browse the Hugging Face catalog of MLX-quantized models. Shows download status and size.

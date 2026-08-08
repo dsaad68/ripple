@@ -271,11 +271,12 @@ extension ChatScreen {
         let mainIdle: Int
         let visionIdle: Int
         if let workingDirectory {
-            vision = RippleAgentConfig.loadVisionModel(workingDirectory: workingDirectory) ?? variant.visionModelID
+            // Off unless this project turned it on - the editor shows the running configuration.
+            vision = RippleModelResolution.configuredVisionID(workingDirectory: workingDirectory)
             mainIdle = RippleAgentConfig.loadPlannerIdleMinutes(workingDirectory: workingDirectory)
             visionIdle = RippleAgentConfig.loadVisionIdleMinutes(workingDirectory: workingDirectory)
         } else {
-            vision = variant.visionModelID
+            vision = ""
             mainIdle = RippleAgentConfig.defaultIdleMinutes
             visionIdle = RippleAgentConfig.defaultIdleMinutes
         }
