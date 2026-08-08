@@ -333,7 +333,8 @@ extension ChatScreen {
             } else if let row = config?.current, config?.modelID(of: row) != nil || row.id == ConfigEditor.clearRowID {
                 footer = "←→ tabs · ↑↓ move · x delete · enter/esc save & apply"
             } else if config?.current?.id == ConfigEditor.snapshotsRowID
-                || config?.current?.id == ConfigEditor.sizeRowID {
+                || config?.current?.id == ConfigEditor.sizeRowID
+                || config?.current?.id == ConfigEditor.compactionRowID {
                 footer = "←→ tabs · ↑↓ move · space cycle · enter/esc save & apply"
             } else {
                 footer = "←→ tabs · ↑↓ move · space toggle · enter/esc save & apply"

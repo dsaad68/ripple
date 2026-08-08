@@ -219,12 +219,13 @@ struct ToolsBrowser {
 struct ConfigEditor {
     /// The panel's tabs, switched with ←/→.
     enum Tab: CaseIterable {
-        case capabilities, lazyTools, sandbox, cache
+        case capabilities, lazyTools, sandbox, context, cache
         var title: String {
             switch self {
             case .capabilities: "Capabilities"
             case .lazyTools: "Lazy Tools"
             case .sandbox: "Sandbox"
+            case .context: "Context"
             case .cache: "Cache"
             }
         }
@@ -274,7 +275,14 @@ struct ConfigEditor {
     /// editor opens; empty when none are configured.
     var mcpServers: [MCPServerConfig] = []
 
+    /// Working copy of the compaction threshold, as a percentage of the active model's window.
+    var compactionPercent: Int
+    /// The active planner's context window, so the Context row can show what the percentage works
+    /// out to in tokens. Nil when no model reports one.
+    var contextWindowTokens: Int?
+
     static let logRowID = "devlog"
+    static let compactionRowID = "compaction"
     static let toolSearchRowID = "toolsearch"
     static let retrieverRowID = "toolsearch.model"
     static let searchLimitRowID = "toolsearch.limit"
@@ -296,6 +304,10 @@ struct ConfigEditor {
     /// A per-model usage row carries its model id after this prefix, so `x` knows what to delete.
     static let modelRowPrefix = "prefixkv.model:"
 
+    /// The thresholds offered on the Compaction row, cycled with space. The low end matters: a model
+    /// reporting the 262k window its card documents will not fit on a laptop anywhere near 80%.
+    static let compactionChoices = [20, 30, 40, 50, 60, 70, 80, 90]
+
     /// The counts offered on the Snapshots row, cycled with space.
     static let snapshotChoices = [2, 4, 6, 8, 12]
     /// The ceilings offered on the Size row, in GB. `0` is "no limit".
@@ -303,8 +315,12 @@ struct ConfigEditor {
 
     init(
         policy: AgentToolPolicy, logMessages: Bool = false, prefixKVCache: Bool = true,
-        snapshotsPerModel: Int = 6, maxGigabytes: Double = 4
+        snapshotsPerModel: Int = 6, maxGigabytes: Double = 4,
+        compactionPercent: Int = RippleAgentConfig.defaultCompactionPercent,
+        contextWindowTokens: Int? = nil
     ) {
+        self.compactionPercent = compactionPercent
+        self.contextWindowTokens = contextWindowTokens
         self.policy = policy
         self.logMessages = logMessages
         self.prefixKVCache = prefixKVCache
@@ -336,6 +352,17 @@ struct ConfigEditor {
         case .sandbox:
             let container = MiddlewareCatalog.container
             return [Row(id: container.id, displayName: container.displayName, summary: container.summary)]
+        case .context:
+            return [
+                Row(
+                    id: Self.compactionRowID, displayName: "Compact at",
+                    summary: "How full the context may get before older turns are summarized. Each "
+                        + "model reports the window its own card documents rather than a shrunk one, "
+                        + "so this is what decides how large a conversation may grow - and some of "
+                        + "those windows are far past what a laptop holds. Lower it on a tight "
+                        + "machine, or on a model with a very large window. Space cycles."
+                )
+            ]
         case .cache:
             return cacheRows
         }
@@ -425,6 +452,16 @@ struct ConfigEditor {
             ? "ready"
             : "not downloaded, \(entry.sizeLabel)"
         return "\(model.label) · \(state)"
+    }
+
+    /// What the compaction threshold works out to for the active model, e.g. "80% - 105k tokens".
+    /// Rounded to thousands rather than grouped: a locale-aware separator renders 52428 as "52.428"
+    /// under a German regional format, which reads as a decimal.
+    var compactionSummary: String {
+        guard let window = contextWindowTokens else { return "\(compactionPercent)%" }
+        let tokens = window * compactionPercent / 100
+        let rendered = tokens >= 1000 ? "\(tokens / 1000)k" : "\(tokens)"
+        return "\(compactionPercent)% - \(rendered) tokens"
     }
 
     /// The Cache tab: the on/off switch, the two limits, then what the store is actually holding.
@@ -540,6 +577,8 @@ struct ConfigEditor {
         if tier(of: row) != nil { return true }
         if row.id == Self.retrieverRowID || row.id == Self.searchLimitRowID { return true }
         if row.id == Self.prefixKVRowID { return prefixKVCache }
+        // Not a switch - `stateLabel` shows the threshold instead.
+        if row.id == Self.compactionRowID { return true }
         // The limits and usage rows aren't switches; `stateLabel` shows their value instead.
         if isCacheValueRow(row) { return true }
         if row.id == "shell" { return policy.localShellEnabled }
@@ -555,6 +594,7 @@ struct ConfigEditor {
         if row.id == Self.searchLimitRowID { return "\(policy.toolSearchLimit)" }
         if isLocked(row) { return isOn(row) ? "on - fail over" : "off - container only" }
         if row.isContainer { return policy.sandbox.label }
+        if row.id == Self.compactionRowID { return compactionSummary }
         if row.id == Self.snapshotsRowID { return "\(snapshotsPerModel) per model" }
         if row.id == Self.sizeRowID {
             return maxGigabytes == 0 ? "no limit" : String(format: "%.0f GB", maxGigabytes)
@@ -579,6 +619,8 @@ struct ConfigEditor {
         guard let row = current, !isLocked(row) else { return }
         if row.id == Self.logRowID {
             logMessages.toggle()
+        } else if row.id == Self.compactionRowID {
+            compactionPercent = Self.cycle(compactionPercent, through: Self.compactionChoices)
         } else if row.id == Self.toolSearchRowID {
             policy.toolSearch.toggle()
         } else if row.id == Self.retrieverRowID {

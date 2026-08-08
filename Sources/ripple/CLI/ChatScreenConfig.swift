@@ -34,7 +34,12 @@ extension ChatScreen {
     func makeConfigEditor() -> ConfigEditor {
         var editor = ConfigEditor(
             policy: policy, logMessages: logMessages, prefixKVCache: prefixKVCache,
-            snapshotsPerModel: prefixKVSnapshots, maxGigabytes: prefixKVMaxGigabytes
+            snapshotsPerModel: prefixKVSnapshots, maxGigabytes: prefixKVMaxGigabytes,
+            compactionPercent: workingDirectory.map {
+                RippleAgentConfig.loadCompactionPercent(workingDirectory: $0)
+            } ?? RippleAgentConfig.defaultCompactionPercent,
+            // So the Context row can say what the percentage costs in tokens on this model.
+            contextWindowTokens: agent.contextWindowTokens
         )
         editor.inventory = PrefixKVStore.inventory()
         // The Lazy Tools tab tiers MCP per server, so it needs the configured servers by name.
@@ -97,6 +102,11 @@ extension ChatScreen {
         let prefixChanged = editor.prefixKVCache != prefixKVCache
         let limitsChanged = editor.snapshotsPerModel != prefixKVSnapshots
             || editor.maxGigabytes != prefixKVMaxGigabytes
+        // The threshold is read when the agent is built, so a change has to be saved before the
+        // rebuild below picks it up.
+        let compactionChanged = workingDirectory.map {
+            editor.compactionPercent != RippleAgentConfig.loadCompactionPercent(workingDirectory: $0)
+        } ?? false
         let imageChanged = updated.sandboxImage != policy.sandboxImage
         let policyOrLogChanged = updated != policy || logChanged
         policy = updated
@@ -123,8 +133,13 @@ extension ChatScreen {
                     workingDirectory: workingDirectory
                 )
             }
+            if compactionChanged {
+                try? RippleAgentConfig.saveCompactionPercent(
+                    editor.compactionPercent, workingDirectory: workingDirectory
+                )
+            }
         }
-        guard policyOrLogChanged else { return }
+        guard policyOrLogChanged || compactionChanged else { return }
         // A new image only takes effect on a fresh container: the sandbox adopts an existing one by name
         // and ignores the image (see AppleContainerSandbox.ensureContainer), so tear the current one down
         // first - when one may exist and nothing is running in it - before rebuilding the agent.

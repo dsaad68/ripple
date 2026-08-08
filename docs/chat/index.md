@@ -33,7 +33,7 @@ The top bar shows, from left to right:
 - **Working directory** - the directory `ripple` was launched from
 - **Context meter** - percentage of the model's context window consumed so far
 
-The context meter updates after every turn. When it approaches 85%, the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
+The context meter updates after every turn. When it approaches 80% (configurable via `compactionPercent`), the [compaction middleware](../config/compaction.md) fires automatically and the meter drops. You can also trigger it manually with `/compact`.
 
 ### Transcript
 
@@ -112,7 +112,7 @@ The agent has access to several built-in tool groups, plus any tools from connec
 | Shell | `shell` (sandboxed or local, depending on mode) |
 | Apple Notes | Read, search, and create notes |
 | Clipboard | Read from and write to the macOS clipboard |
-| Vision | Screenshot and analyze windows or the full screen |
+| Vision | Screenshot and analyze windows or the full screen (needs a vision model - see [Models](../models/index.md)) |
 
 Each tool group is a "capability middleware" - you can disable individual groups in `/config` or via `settings.json`.
 

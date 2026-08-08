@@ -44,6 +44,18 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
   catalog rather than the whole model catalog, so a ColBERT id is rejected up front instead of booting
   into a model that cannot load.
 
+## [0.6.0] - 2026-08-08
+
+### Added
+
+- **A `/config` **Context** tab sets when the conversation is compacted**, cycling 20-90% with
+  space and showing what the threshold costs on the loaded model (`20% - 52k tokens`). Persisted as
+  `compactionPercent` in `settings.json` (default 80, accepted range 10-99, project settings then
+  `~/.ripple`). Each model now reports the context window its own card documents instead of a
+  pre-shrunk one - 131,072 on LFM2.5-2.6B, 128,000 on 8B-A1B and Gemma 4, 262,144 on Ornith and
+  Qwen3.6 - so this threshold, not a smaller declared window, is what decides how large a
+  conversation may get. It matters most on those large-window models: 80% of 262k is past what a
+  laptop will carry, so lower it there and on any memory-tight machine.
 - **Tools that ran at the same time are marked `∥N` on their cards.** A round's read-only tools
   (`grep`, `ls`, `tree`, reads, `git_*`) now execute concurrently in DeepAgents, but three cards
   each reading 0.1s are indistinguishable from three sequential calls - the round costs one wait
@@ -55,8 +67,28 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
   whatever order the reads finish - so a consumer must pair on `callID` rather than on `name`.
   `batchID` is shared by the calls that ran together and absent from those that ran alone.
 
+### Changed
+
+- **Vision is off by default; turn it on in `/model`'s Select tab.** The `vision` subagent is a
+  second model to download, load and keep resident, and most sessions never delegate a screenshot
+  to it - so a fresh project now starts without one and fetches no VLM. A preset still suggests the
+  VLM that pairs with it; the Select tab offers that suggestion rather than enabling it unasked.
+  Projects that already set `visionModel` in `settings.json` are unaffected. The banner reports
+  `vision none` until a model is picked, and `ripple model download default` fetches the planner
+  only.
+- **deepagents-swift 0.5.0 -> 0.6.0.** Brings the round's parallel tool calls, the search tools no
+  longer reporting a truncated walk as "no matches", the agent being told which folder it works in,
+  a run never ending on an empty answer, and each model reporting the context window and output
+  budget its card documents.
+
 ### Fixed
 
+- **A failed tool call is drawn as failed.** Tool cards showed a green success tick on calls that
+  had done nothing - `read_file` given a URL rendered as ✓ beside `Error: no file at "https://…"` -
+  because most built-in tools return their errors rather than throwing, and the runtime reported
+  those as completions. Ripple's rendering was already right; it was being told the wrong thing.
+  Fixed in DeepAgents (`ToolOutput.failure`), so the card, the `∥N` grouping and the `stream-json`
+  `tool_failed` lines now agree with what happened.
 - **A tool's result reaches the card it belongs to.** The transcript matched a result to "the last
   unfinished step", which was unambiguous only while a round's tools ran one at a time. With
   several open at once it attached results, streamed progress and failures to whichever card
@@ -224,6 +256,7 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 - Added `ripple --version` (prints the ripple and DeepAgents-swift versions) plus version / About
   surfaces with documentation links.
 
+[0.6.0]: https://github.com/dsaad68/ripple/releases/tag/0.6.0
 [0.5.0]: https://github.com/dsaad68/ripple/releases/tag/0.5.0
 [0.4.0]: https://github.com/dsaad68/ripple/releases/tag/0.4.0
 [0.3.0]: https://github.com/dsaad68/ripple/releases/tag/0.3.0

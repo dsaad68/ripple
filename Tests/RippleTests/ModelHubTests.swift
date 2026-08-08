@@ -77,15 +77,49 @@ struct ModelHubTests {
 
     // MARK: - RippleModelResolution
 
-    @Test("configuredVisionID returns the saved vision model, else the variant default")
-    func configuredVisionIDPrefersSaved() throws {
+    /// Models now report the context window their card documents rather than a pre-shrunk one, so
+    /// this threshold is what keeps a session inside what the machine can carry - and it has to be
+    /// tunable, because 262k on the qwen3_5 family is far past what a laptop will hold.
+    @Test("compactionPercent defaults to 80 and is clamped to a usable range")
+    func compactionPercentIsConfigurableAndClamped() throws {
+        let project = tempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 80)
+
+        try RippleAgentConfig.saveCompactionPercent(60, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 60)
+
+        // 100 would let the window fill before compaction could ever run; 0 would compact forever.
+        try RippleAgentConfig.saveCompactionPercent(100, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 99)
+        try RippleAgentConfig.saveCompactionPercent(0, workingDirectory: project)
+        #expect(RippleAgentConfig.loadCompactionPercent(workingDirectory: project) == 10)
+    }
+
+    @Test("configuredVisionID is off until the project picks a vision model")
+    func configuredVisionIDIsOptIn() throws {
+        let project = tempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+
+        // Vision costs a second model to download, load and keep resident, so an unconfigured
+        // project runs without one even though the variant suggests a VLM.
+        #expect(RippleModelResolution.configuredVisionID(workingDirectory: project).isEmpty)
+        try RippleAgentConfig.saveVisionModel("vendor/my-vlm", workingDirectory: project)
+        #expect(RippleModelResolution.configuredVisionID(workingDirectory: project) == "vendor/my-vlm")
+    }
+
+    @Test("an unconfigured project downloads the planner only")
+    func requiredModelIDsSkipsVisionUntilItIsTurnedOn() throws {
         let project = tempDir()
         defer { try? FileManager.default.removeItem(at: project) }
         let variant = try #require(DeepAgentVariant.all.first { $0.id == "mispher.deepagent" })
 
-        #expect(RippleModelResolution.configuredVisionID(variant, workingDirectory: project) == variant.visionModelID)
-        try RippleAgentConfig.saveVisionModel("vendor/my-vlm", workingDirectory: project)
-        #expect(RippleModelResolution.configuredVisionID(variant, workingDirectory: project) == "vendor/my-vlm")
+        #expect(RippleModelResolution.requiredModelIDs(variant, workingDirectory: project) == [variant.textModelID])
+        // …and the suggested VLM is fetched once the project turns vision on.
+        try RippleAgentConfig.saveVisionModel(variant.visionModelID, workingDirectory: project)
+        let withVision = RippleModelResolution.requiredModelIDs(variant, workingDirectory: project)
+        #expect(withVision == [variant.textModelID, variant.visionModelID])
     }
 
     @Test("requiredModelIDs downloads a local vision model but skips a remote one")

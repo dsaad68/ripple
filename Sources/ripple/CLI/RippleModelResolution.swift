@@ -43,11 +43,14 @@ enum RippleModelResolution {
         )
     }
 
-    /// The vision model id for `variant`: the project's configured `visionModel` (`/model`'s Select
-    /// tab) overrides the variant default; an empty string means the user turned vision off. The one
-    /// place the "configured-vision-else-variant-default" rule lives.
-    static func configuredVisionID(_ variant: DeepAgentVariant, workingDirectory: URL) -> String {
-        RippleAgentConfig.loadVisionModel(workingDirectory: workingDirectory) ?? variant.visionModelID
+    /// The vision model id for `variant`: whatever the project configured in `/model`'s Select tab,
+    /// and **off** when it configured nothing. The one place the "vision is opt-in" rule lives.
+    ///
+    /// Vision is off by default because it costs a second model - a download, a load, and resident
+    /// memory - that most sessions never delegate a screenshot to. `variant.visionModelID` is the
+    /// VLM the Select tab offers for that variant, not one it turns on unasked.
+    static func configuredVisionID(workingDirectory: URL) -> String {
+        RippleAgentConfig.loadVisionModel(workingDirectory: workingDirectory) ?? ""
     }
 
     /// The model ids that must be on disk for `variant`: the planner plus the configured vision model.
@@ -55,7 +58,7 @@ enum RippleModelResolution {
     /// catalog model - a remote vision model has nothing on disk to fetch.
     static func requiredModelIDs(_ variant: DeepAgentVariant, workingDirectory: URL) -> [String] {
         guard !variant.isRemote else { return [] }
-        let vision = configuredVisionID(variant, workingDirectory: workingDirectory)
+        let vision = configuredVisionID(workingDirectory: workingDirectory)
         let needsVision = !vision.isEmpty && MlxModel.catalog.contains { $0.id == vision }
         return [variant.textModelID] + (needsVision ? [vision] : [])
     }
@@ -99,7 +102,7 @@ enum RippleModelResolution {
             choice.textModelID, manager: manager, remote: remote,
             idleMinutes: RippleAgentConfig.loadPlannerIdleMinutes(workingDirectory: workingDirectory)
         ) else { return nil }
-        let visionID = configuredVisionID(choice, workingDirectory: workingDirectory)
+        let visionID = configuredVisionID(workingDirectory: workingDirectory)
         guard !visionID.isEmpty else { return (planner, nil) }
         // A stale / removed vision id (no longer a catalog model or a registered remote) drops vision
         // instead of failing the build - the planner still runs.

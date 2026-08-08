@@ -145,6 +145,15 @@ enum RippleDeepAgent {
             .compactMap { $0 }
             .joined(separator: "\n\n")
 
+        // Compaction is what keeps a session inside what this machine can carry: every model now
+        // reports the context window its card documents, and some are far larger than a laptop will
+        // hold. The threshold is per-project so a memory-tight machine can compact sooner.
+        let compactionPercent = RippleAgentConfig.loadCompactionPercent(
+            workingDirectory: workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+        )
+        var summarization = SummarizationConfig.default
+        summarization.triggerFraction = Double(compactionPercent) / 100
+
         return createDeepAgent(
             model: textModel,
             systemPrompt: systemPrompt,
@@ -162,6 +171,7 @@ enum RippleDeepAgent {
             includeFilesystem: !policy.disabledMiddleware.contains("filesystem"),
             disabledToolNames: expansion.disabledToolNames,
             messageLog: messageLog,
+            summarization: summarization,
             auxiliaryToolNames: expansion.auxiliaryToolNames,
             toolRetriever: toolRetriever,
             toolsetsByTool: mcpToolsetsByTool
