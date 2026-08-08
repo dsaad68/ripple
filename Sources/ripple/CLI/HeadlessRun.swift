@@ -141,6 +141,9 @@ enum HeadlessRun {
         let logURL = options.logDirectory.map { URL(fileURLWithPath: $0, isDirectory: true) }
         if let logURL { try? FileManager.default.createDirectory(at: logURL, withIntermediateDirectories: true) }
 
+        let lazyTools = RippleDeepAgent.toolSearchInputs(
+            policy: policy, servers: servers, mcpTools: mcpRuntime.tools
+        )
         let agent = RippleDeepAgent.make(
             textModel: planner, visionModel: vision,
             memory: nil, // stateless one-shot - the agent just starts fresh
@@ -148,7 +151,9 @@ enum HeadlessRun {
             askUserHandler: { _ in .cancelled }, // no one to ask non-interactively; the agent continues
             messageLog: logURL.map { JSONLMessageLog(directory: $0) },
             workingDirectory: workingDirectory,
-            policy: policy, mcpTools: mcpRuntime.tools, mcpApprovalDefaults: mcpRuntime.approvalDefaults
+            policy: policy, mcpTools: mcpRuntime.tools, mcpApprovalDefaults: mcpRuntime.approvalDefaults,
+            mcpAuxiliaryToolNames: lazyTools.auxiliary, mcpToolsetsByTool: lazyTools.toolsets,
+            toolRetriever: lazyTools.retriever
         )
 
         let result = await drive(

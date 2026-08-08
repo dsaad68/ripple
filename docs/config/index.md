@@ -51,7 +51,13 @@ repo).
       "shell": "ask"
     },
     "sandbox": "failover",
-    "sandboxImage": "ghcr.io/astral-sh/uv:python3.13-alpine3.23"
+    "sandboxImage": "ghcr.io/astral-sh/uv:python3.13-alpine3.23",
+    "toolSearch": true,
+    "auxiliaryMiddleware": ["git", "text"],
+    "auxiliaryTools": ["curl"],
+    "coreMCPServers": ["deepwiki"],
+    "toolSearchModel": "mlx-community/LFM2.5-ColBERT-350M-8bit",
+    "toolSearchLimit": 5
   }
 }
 ```
@@ -86,6 +92,12 @@ Controls which tools and middleware are active and how tool calls are gated.
 | `approvals` | object | Per-tool approval mode: `"ask"`, `"approve"`, or `"deny"` |
 | `sandbox` | string | Shell sandbox mode: `"off"`, `"failover"`, or `"container-only"` |
 | `sandboxImage` | string | OCI image for the sandbox container |
+| `toolSearch` | bool | Turn lazy tool loading on (default `false`) - see [Lazy tools](#lazy-tools) |
+| `auxiliaryMiddleware` | array of strings | Capability middleware ids whose tools are auxiliary |
+| `auxiliaryTools` | array of strings | Individual tool names to make auxiliary |
+| `coreMCPServers` | array of strings | MCP servers to keep **core**; every other server is auxiliary |
+| `toolSearchModel` | string | Retrieval model repo id; omit for the lexical retriever |
+| `toolSearchLimit` | int | How many tools one `search_tools` call returns (default `5`) |
 
 **Approval modes:**
 
@@ -107,11 +119,63 @@ The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Overr
 
 ---
 
+## Lazy tools
+
+By default every enabled tool's JSON schema is written into the model's prompt on every query. With
+around forty tools that is a large fixed cost paid before the model produces its first token, and
+most queries use a handful of them.
+
+Turn `toolSearch` on and tools split into two tiers:
+
+- **Core** tools are in the prompt from the first token. Always callable, and paid for on every
+  query.
+- **Auxiliary** tools are not in the prompt at all. The agent calls `search_tools` with a
+  description of what it needs ("read a file", "check git history"), gets back the matching names and
+  signatures, and then calls the tool normally. They cost nothing until they are needed, at the price
+  of one extra round the first time.
+
+Auxiliary tools are still gated by their approval mode - the tier decides what is prefilled, not
+what is permitted, so you will still see approval cards for tools you did not mark core.
+
+Two tools are always present when the feature is on: `search_tools`, and `run_tool` for a planner
+that will not call a tool absent from its own schema.
+
+### Retrievers
+
+`toolSearchModel` picks how `search_tools` ranks tools:
+
+| Value | Behaviour |
+|---|---|
+| omitted | Lexical - IDF-weighted term overlap. No model, no download. |
+| `mlx-community/LFM2.5-ColBERT-350M-8bit` | ColBERT late interaction, ~350 MB resident. The default choice in `/config`. |
+| `mlx-community/LFM2.5-ColBERT-350M-bf16` | The same model at full precision, ~700 MB resident. |
+
+The ColBERT retrievers score every query token against every tool token (MaxSim), which reads intent
+considerably better than term overlap. They download on first use like any other model.
+
+### Why moving a tier re-prefills once
+
+The rendered tool set is part of Ripple's reusable prompt prefix, so changing which tools are core
+invalidates the saved prefix once - the next query after an edit is a cold one, then it is warm
+again. Discovering a tool through `search_tools` does *not* do this: the schemas arrive as a tool
+result, which appends to the conversation instead of changing the prompt's prefix. See
+[Compaction & the prefix cache](compaction.md).
+
+---
+
 ## The `/config` editor
 
-Type `/config` in an interactive session to open the configuration overlay. It lets you toggle
-middleware, change the sandbox mode, set logging, and review tool policy without editing the JSON
-file by hand. Changes made in `/config` are written back to the project `settings.json`.
+Type `/config` in an interactive session to open the configuration overlay. Its tabs are switched
+with ←/→ and space acts on the highlighted row:
+
+- **Capabilities** - toggle capability middleware on/off, and the developer message log.
+- **Lazy Tools** - turn lazy tools on, pick the retriever and how many matches a search returns, and
+  move each toolset and MCP server between core and auxiliary.
+- **Sandbox** - the container sandbox mode and its image.
+- **Cache** - the prefill cache switch, its limits, and what it is holding per model.
+
+Changes made in `/config` are written back to the project `settings.json`. The MCP tier is stored
+there too rather than in `mcp.json`, which may be a shared `.mcp.json` that other tools read.
 
 ---
 

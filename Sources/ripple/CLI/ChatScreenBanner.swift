@@ -1,4 +1,5 @@
 import DeepAgents
+import DeepAgentsMLX
 import Foundation
 
 // The full-screen overlays for `ripple chat`: the empty-state launch banner (with the shimmering
@@ -18,8 +19,23 @@ extension ChatScreen {
         return Self.bannerBox(
             width: width, planner: plannerName, vision: Self.name(variant.visionModelID),
             cwd: abbreviatedCWD(), mcp: mcpServers.map(\.name), needsAuth: needsAuth,
-            instructions: instructionFiles, introFrame: introFrame
+            instructions: instructionFiles, toolSearch: toolSearchSummary(), introFrame: introFrame
         )
+    }
+
+    /// The banner's `tool search` row: the retriever in use and how many tools it is holding back, or
+    /// nil when lazy tools are off (no row, so the banner stays as it was for anyone not using it).
+    ///
+    /// The hidden count comes from the live agent rather than the policy, so it reflects what was
+    /// actually assembled - a toolset tiered auxiliary but disabled contributes nothing, and this says
+    /// so instead of promising tools that aren't there.
+    func toolSearchSummary() -> String? {
+        guard policy.toolSearch else { return nil }
+        let hidden = agent.tools.count - agent.renderedTools.count
+        guard hidden > 0 else { return nil }
+        let retriever = policy.toolSearchModel
+            .flatMap(ToolSearchModel.init(rawValue:))?.label ?? "lexical"
+        return "\(retriever) · \(hidden) tool\(hidden == 1 ? "" : "s") on demand"
     }
 
     /// The two-pane box body, pure so it can be unit-tested for border alignment at any width.
@@ -28,7 +44,8 @@ extension ChatScreen {
     /// `needsAuth` are the names that need a sign-in - shown as a yellow nudge under the list.
     static func bannerBox(
         width: Int, planner: String, vision: String, cwd: String, mcp: [String] = [],
-        needsAuth: [String] = [], instructions: [String] = [], introFrame: Int
+        needsAuth: [String] = [], instructions: [String] = [], toolSearch: String? = nil,
+        introFrame: Int
     ) -> [Line] {
         let edge = Theme.border.xterm
         let inner = width - 2 // columns between ╭ and ╮
@@ -61,6 +78,9 @@ extension ChatScreen {
             modelRow("main agent", planner),
             modelRow("vision", vision)
         ]
+        // Lazy tools change what the agent can see, so the banner says so - and names the retriever,
+        // which is otherwise only visible inside /config.
+        if let toolSearch { left.append(modelRow("tool search", toolSearch)) }
         if !mcp.isEmpty { // the first three configured MCP servers, then `…`
             let summary = mcp.prefix(3).joined(separator: ", ") + (mcp.count > 3 ? ", …" : "")
             left += ["", Paint.fg(244, "available mcps: ") + Paint.fg(245, clip(summary, leftW - 16))]

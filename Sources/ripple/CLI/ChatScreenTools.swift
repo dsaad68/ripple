@@ -12,18 +12,38 @@ extension ChatScreen {
     /// the human-in-the-loop policy, so the browser shows exactly which calls ask for approval.
     func makeToolsBrowser() -> ToolsBrowser {
         let gated = agent.middleware.compactMap { $0 as? HumanInTheLoopMiddleware }.first?.interruptOn ?? [:]
+        let auxiliary = auxiliaryToolNames()
 
         var groups: [ToolsBrowser.Group] = []
         if !agent.tools.isEmpty {
-            groups.append(ToolsBrowser.Group(title: "Agent tools", tools: agent.tools.map { toolInfo($0, gated: gated) }))
+            groups.append(ToolsBrowser.Group(
+                title: "Agent tools",
+                tools: agent.tools.map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
+            ))
         }
         for middleware in agent.middleware where !middleware.tools.isEmpty {
+            let tools = middleware.tools.map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
             groups.append(ToolsBrowser.Group(
                 title: Self.toolsetTitle(middleware.name),
-                tools: middleware.tools.map { toolInfo($0, gated: gated) }
+                subtitle: Self.tierSubtitle(tools),
+                tools: tools
             ))
         }
         return ToolsBrowser(groups: groups)
+    }
+
+    /// The tools the agent can dispatch but does **not** render into the prompt - read off the live
+    /// agent rather than re-derived from the policy, so this browser reports what is actually happening
+    /// (a toolset tiered auxiliary but disabled contributes nothing, and shows as nothing).
+    func auxiliaryToolNames() -> Set<String> {
+        Set(agent.tools.map(\.name)).subtracting(agent.renderedTools.map(\.name))
+    }
+
+    /// A toolset's tier line, when every tool in it shares one tier. Mixed groups get no line - the
+    /// per-tool tags carry it instead.
+    nonisolated static func tierSubtitle(_ tools: [ToolsBrowser.ToolInfo]) -> String? {
+        guard !tools.isEmpty, tools.allSatisfy(\.auxiliary) else { return nil }
+        return "auxiliary - not in the prompt; the agent finds these with search_tools"
     }
 
     /// Build the `/mcp` overview: one group per configured MCP server, subtitled with its
@@ -35,11 +55,18 @@ extension ChatScreen {
         let mcpTools = agent.middleware.first { $0.name == "mcp" }?.tools ?? []
 
         let statusByName = Dictionary(mcpStatuses.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let auxiliary = auxiliaryToolNames()
         let groups: [ToolsBrowser.Group] = mcpServers.map { server in
-            let tools = toolsFromServer(server.name, in: mcpTools).map { toolInfo($0, gated: gated) }
+            let tools = toolsFromServer(server.name, in: mcpTools)
+                .map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
             var bits = [server.kind == .http ? "HTTP" : "stdio"]
             if server.kind == .http { bits.append(server.auth == .oauth ? "OAuth" : "Headers") }
             bits.append("approval: \(server.approvalMode.label)")
+            // The tier, when lazy tools are on - otherwise every server reads the same and a
+            // configured tier looks like it was never applied. Edited on /config's Lazy Tools tab.
+            if policy.toolSearch, !tools.isEmpty {
+                bits.append("tier: \(tools.allSatisfy(\.auxiliary) ? "auxiliary" : "core")")
+            }
             // Surface this server's live state: signing in, an OAuth server that needs (or has) a
             // sign-in, or a failure - so it doesn't read as a healthy server with no tools. The
             // not-authenticated nudge is yellow (the renderer dims the rest).
@@ -124,7 +151,9 @@ extension ChatScreen {
 
     /// Project a tool into the browser's display model: name, whether it's gated (needs approval),
     /// description, and its parameters with type/role labels.
-    private func toolInfo(_ tool: any AgentTool, gated: [String: InterruptOnConfig]) -> ToolsBrowser.ToolInfo {
+    private func toolInfo(
+        _ tool: any AgentTool, gated: [String: InterruptOnConfig], auxiliary: Set<String> = []
+    ) -> ToolsBrowser.ToolInfo {
         ToolsBrowser.ToolInfo(
             name: tool.name,
             gated: gated[tool.name] != nil,
@@ -139,7 +168,8 @@ extension ChatScreen {
                 return ToolsBrowser.Param(
                     label: "\(param.name) (\(role), \(Self.typeLabel(param.type)))", detail: detail
                 )
-            }
+            },
+            auxiliary: auxiliary.contains(tool.name)
         )
     }
 
@@ -511,7 +541,11 @@ extension ChatScreen {
         out.append(Line(""))
         let textWidth = max(20, width - 12) // leave room for the box border + the in-row indent
         for tool in group.tools {
-            var head = "  " + Paint.fg(114, "●") + " " + Paint.fg(252, tool.name)
+            // A hollow marker for an auxiliary tool, matching the ✓/○ present/absent idiom the model
+            // rows use - it is dispatchable, just not in the prompt.
+            var head = "  " + Paint.fg(auxiliaryMarkerColor(tool), tool.auxiliary ? "○" : "●")
+                + " " + Paint.fg(252, tool.name)
+            if tool.auxiliary { head += "  " + Paint.fg(245, "[auxiliary]") }
             if tool.gated { head += "  " + Paint.fg(Theme.warn.xterm, "[needs approval]") }
             out.append(Line(head))
             for line in Self.wrapPlain(tool.description, width: textWidth) {
@@ -527,6 +561,11 @@ extension ChatScreen {
             out.append(Line(""))
         }
         return out
+    }
+
+    /// Green for a tool the model can see, dim for one it has to search for.
+    private func auxiliaryMarkerColor(_ tool: ToolsBrowser.ToolInfo) -> Int {
+        tool.auxiliary ? 240 : 114
     }
 
     /// Color a param's "name (role, type)" label: the name brighter than its dim parenthetical type,

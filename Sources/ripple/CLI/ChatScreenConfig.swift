@@ -37,6 +37,8 @@ extension ChatScreen {
             snapshotsPerModel: prefixKVSnapshots, maxGigabytes: prefixKVMaxGigabytes
         )
         editor.inventory = PrefixKVStore.inventory()
+        // The Lazy Tools tab tiers MCP per server, so it needs the configured servers by name.
+        editor.mcpServers = mcpServers
         return editor
     }
 
@@ -171,6 +173,12 @@ extension ChatScreen {
     /// panel border, see ``menuChrome``.)
     func configLines(_ editor: ConfigEditor, width: Int) -> [Line] {
         var out: [Line] = [tabBar(editor), Line("")]
+        // A tab whose trade-off isn't legible from its row names explains itself first (Lazy Tools:
+        // prompt tokens on one side, an extra round on the other).
+        if let explanation = editor.tab.explanation {
+            for wrapped in wrap(explanation, width - 8) { out.append(Line("  " + Paint.fg(244, wrapped))) }
+            out.append(Line(""))
+        }
         for (index, row) in editor.rows.enumerated() {
             let selected = index == editor.index
             let locked = editor.isLocked(row) // shell governed by the sandbox - not user-toggleable
@@ -188,7 +196,12 @@ extension ChatScreen {
                 + pad + Paint.fg(stateColor, editor.stateLabel(row))
             out.append(Line(line, nil, highlight: selected))
             if selected {
-                let note = locked ? "Set by the sandbox mode - change it on the Sandbox tab." : row.summary
+                // Two different reasons a row can be locked, and they need different explanations:
+                // the sandbox governs the shell, and the Lazy tools switch governs everything below it.
+                let lockNote = editor.tab == .lazyTools
+                    ? "Turn Lazy tools on to change this."
+                    : "Set by the sandbox mode - change it on the Sandbox tab."
+                let note = locked ? lockNote : row.summary
                 for wrapped in wrap(note, width - 10) { out.append(Line("    " + Paint.fg(240, wrapped))) }
                 if row.isContainer { out.append(contentsOf: containerImageLines(editor, width: width)) }
             }

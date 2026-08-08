@@ -7,9 +7,9 @@ Slash commands give you live control over the agent's configuration, tools, and 
 | Command | What it opens |
 |---|---|
 | `/model` | Model picker - choose the planner model, set idle timeout, browse and download local models, manage remote models |
-| `/tools` | Two-level tool browser - all agent tools grouped by capability set |
+| `/tools` | Two-level tool browser - all agent tools grouped by capability set, with their tier |
 | `/mcp` | MCP server list - servers, their tools, and per-server approval mode |
-| `/config` | Config editor - capabilities, sandbox mode, and logging |
+| `/config` | Config editor - capabilities, lazy tools, sandbox mode, cache, and logging |
 | `/compact` | Compact the current conversation immediately |
 | `/help` | Keyboard reference and command list |
 | `/fresh` | Start a new conversation (mints a fresh session id) |
@@ -41,7 +41,13 @@ A two-level browser that shows every tool the agent currently has access to:
 - **Level 1** - capability sets (e.g. filesystem, shell, MCP server tools).
 - **Level 2** (press ++enter++ on a set) - the individual tools within it, each with its description.
 
-This is read-only - use [Configuration](../config/index.md) (`/config`) or `toolPolicy` in `settings.json` to enable or disable tools.
+With [lazy tools](../config/index.md#lazy-tools) on, each tool also shows its tier: a filled `●` for a
+**core** tool (its schema is in the model's prompt) and a hollow `○` with an `[auxiliary]` tag for one
+the agent has to find with `search_tools` first. A toolset that is entirely auxiliary says so under its
+name. Auxiliary tools are listed here because they are still fully callable - they are just not
+prefilled.
+
+This is read-only - use [Configuration](../config/index.md) (`/config`) or `toolPolicy` in `settings.json` to enable or disable tools, or to move them between tiers.
 
 ---
 
@@ -64,6 +70,9 @@ An interactive editor for the session's live configuration:
 
 - **Capabilities** - enable or disable middleware (e.g. clipboard integration, screenshot access),
   and configure the JSONL debug transcript (**Logging**).
+- **Lazy Tools** - keep tools out of the prompt until the agent searches for them: the feature switch,
+  the retriever (lexical or a ColBERT encoder), how many matches a search returns, and a core /
+  auxiliary tier per toolset and per MCP server. See [Lazy tools](../config/index.md#lazy-tools).
 - **Sandbox** - set the sandbox mode (`off`, `failover`, `container-only`).
 - **Cache** - the on-disk prefill cache: whether it runs, how much room it may take, and what it is
   currently holding.

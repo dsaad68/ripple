@@ -10,6 +10,40 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ### Added
 
+- **`/config` → Lazy Tools: choose which tools are worth prefilling.** A new tab with the feature
+  switch, the retriever, how many matches a search returns, and a **core / auxiliary** tier per toolset
+  and per configured MCP server. Core tools are in the model's prompt from the first token and are paid
+  for on every query; auxiliary tools are not in the prompt at all - the agent finds them with
+  `search_tools` and then calls them normally, so they cost nothing until they are needed, at the price
+  of one extra round the first time. The tab carries a short explanation of that trade, and every row
+  below the switch is visibly locked (and says why) until the feature is on.
+
+  Off by default, and stored in `settings.json` under `toolPolicy` (`toolSearch`,
+  `auxiliaryMiddleware`, `auxiliaryTools`, `coreMCPServers`, `toolSearchModel`, `toolSearchLimit`), so
+  an existing project is unaffected until you open the tab. The MCP tier lives there rather than in
+  `mcp.json`, which may be a shared `.mcp.json` that other tools read.
+- **Retriever choice, with its download state.** Space cycles `lexical (no model)` → `ColBERT 350M
+  (8-bit)` → `ColBERT 350M (bf16)`, each showing `ready` or `not downloaded, 410 MB`. The ColBERT
+  encoders score every query token against every tool token (late interaction), which reads intent
+  considerably better than term overlap; lexical needs no model at all. Both models appear in `/model` →
+  **Local** like any other, so they can be pulled ahead of time (`ripple model pull
+  mlx-community/LFM2.5-ColBERT-350M-8bit`) and deleted. They can never be selected as a planner.
+- **The launch banner reports lazy tools** with a `tool search` row next to `main agent` / `vision`,
+  naming the retriever and how many tools are held back (`ColBERT 350M (8-bit) · 18 tools on demand`).
+  The count comes from the live agent, so a toolset tiered auxiliary but also disabled is not counted as
+  available. No row when the feature is off.
+- **`/tools` and `/mcp` show each tool's tier.** A filled `●` for a core tool, a hollow `○` plus an
+  `[auxiliary]` tag for one the agent has to search for, and a note on a toolset that is entirely
+  auxiliary; `/mcp` shows `tier: core|auxiliary` beside each server's approval mode. Without this an
+  auxiliary tool looked identical to a core one, which made a configured tier indistinguishable from a
+  setting that had been lost.
+
+### Changed
+
+- **`--model` no longer accepts a retrieval encoder.** Planner ids are validated against the language
+  catalog rather than the whole model catalog, so a ColBERT id is rejected up front instead of booting
+  into a model that cannot load.
+
 - **Tools that ran at the same time are marked `∥N` on their cards.** A round's read-only tools
   (`grep`, `ls`, `tree`, reads, `git_*`) now execute concurrently in DeepAgents, but three cards
   each reading 0.1s are indistinguishable from three sequential calls - the round costs one wait

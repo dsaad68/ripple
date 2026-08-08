@@ -113,11 +113,16 @@ public enum DeepAgentREPL {
             let messageLog = makeMessageLog(
                 logDirectory: logDirectory, sessionId: session.id, workingDirectory: workingDirectory
             )
+            let lazyTools = RippleDeepAgent.toolSearchInputs(
+                policy: policy, servers: servers, mcpTools: mcpRuntime.tools
+            )
             return RippleDeepAgent.make(
                 textModel: planner, visionModel: vision,
                 memory: store, approvalHandler: gate.handler, askUserHandler: askGate.handler,
                 messageLog: messageLog, workingDirectory: workingDirectory,
                 policy: policy, mcpTools: mcpRuntime.tools, mcpApprovalDefaults: mcpRuntime.approvalDefaults,
+                mcpAuxiliaryToolNames: lazyTools.auxiliary, mcpToolsetsByTool: lazyTools.toolsets,
+                toolRetriever: lazyTools.retriever,
                 projectInstructions: instructions.promptText
             )
         }

@@ -21,7 +21,9 @@ enum RippleModelResolution {
     static func isKnownModel(_ id: String, remote: [OpenAIModelConfig]) -> Bool {
         remote.contains { $0.name == id }
             || DeepAgentVariant.all.contains { $0.textModelID == id }
-            || MlxModel.catalog.contains { $0.id == id }
+            // `languageCatalog`, not `catalog`: the catalog also holds the retrieval encoders that back
+            // `search_tools`, and one of those as a planner would boot into a model that cannot load.
+            || MlxModel.languageCatalog.contains { $0.id == id }
     }
 
     /// The variant to start in: a known variant whose planner matches `--model`, else a synthesized
