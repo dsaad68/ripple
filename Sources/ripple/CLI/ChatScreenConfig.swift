@@ -190,12 +190,7 @@ extension ChatScreen {
     /// panel border, see ``menuChrome``.)
     func configLines(_ editor: ConfigEditor, width: Int) -> [Line] {
         var out: [Line] = [tabBar(editor), Line("")]
-        // A tab whose trade-off isn't legible from its row names explains itself first (Lazy Tools:
-        // prompt tokens on one side, an extra round on the other).
-        if let explanation = editor.tab.explanation {
-            for wrapped in wrap(explanation, width - 8) { out.append(Line("  " + Paint.fg(244, wrapped))) }
-            out.append(Line(""))
-        }
+        out += tabExplanationLines(editor.tab, width: width)
         for (index, row) in editor.rows.enumerated() {
             let selected = index == editor.index
             let locked = editor.isLocked(row) // shell governed by the sandbox - not user-toggleable
@@ -223,6 +218,30 @@ extension ChatScreen {
                 if row.isContainer { out.append(contentsOf: containerImageLines(editor, width: width)) }
             }
         }
+        return out
+    }
+
+    /// The active tab's ``ConfigEditor/Tab/explanation``, drawn as a titled box above its rows - the
+    /// same bordered idiom the container-image field uses, so it reads as chrome belonging to the tab
+    /// rather than as another row. Titled with the tab's own name: the strip above says which tab you
+    /// are on, this says what being on it lets you change.
+    func tabExplanationLines(_ tab: ConfigEditor.Tab, width: Int) -> [Line] {
+        // Blue - the same accent the focus arrow uses - with an ⓘ on the border, so the box reads as
+        // "here is what this is" at a glance and never as another editable row. The rows below stay
+        // grey, so the eye lands on the explanation first and then leaves it alone.
+        let edge = Theme.accent.xterm
+        let inner = max(24, width - 8) // interior columns between the box's │ bars
+        let title = "ⓘ " + tab.title.lowercased()
+        let titleFill = max(0, inner - TextWidth.of(title) - 3) // "─ " + title + " " then fill to ╮
+        var out = [Line("  " + Paint.fg(edge, "╭─ " + title + " "
+                + String(repeating: "─", count: titleFill) + "╮"))]
+        for wrapped in wrap(tab.explanation, inner - 2) {
+            let pad = String(repeating: " ", count: max(0, inner - 2 - TextWidth.of(wrapped)))
+            out.append(Line("  " + Paint.fg(edge, "│") + " " + Paint.fg(Theme.dim, wrapped) + pad
+                    + " " + Paint.fg(edge, "│")))
+        }
+        out.append(Line("  " + Paint.fg(edge, "╰" + String(repeating: "─", count: inner) + "╯")))
+        out.append(Line(""))
         return out
     }
 

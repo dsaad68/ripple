@@ -18,6 +18,22 @@ struct PlanPanelTests {
         #expect(makeScreen().planPanelLines(width: 60).isEmpty)
     }
 
+    /// Every `/config` tab opens with a titled box saying what it governs. The box must stay aligned
+    /// at any width - a row wider than its border is the failure that makes a panel look broken.
+    @Test(arguments: [60, 80, 110])
+    func configTabExplanationIsABoxedParagraph(width: Int) {
+        let screen = makeScreen()
+        for tab in ConfigEditor.Tab.allCases {
+            let lines = screen.tabExplanationLines(tab, width: width)
+            #expect(lines.count >= 4) // top border, at least one text row, bottom border, a blank
+            #expect(lines[0].text.contains(tab.title.lowercased())) // the tab names its own box
+            #expect(lines.last?.text.isEmpty == true) // breathing room before the rows
+            let box = lines.dropLast()
+            let boxWidth = TextWidth.of(box[0].text)
+            for line in box { #expect(TextWidth.of(line.text) == boxWidth, "\(tab.title) at \(width)") }
+        }
+    }
+
     /// A three-item plan frames to one box - top border (title + `1/3` count), three todo rows, bottom
     /// border - every row the same width, the in-progress item visible.
     @Test(arguments: [44, 60, 80])

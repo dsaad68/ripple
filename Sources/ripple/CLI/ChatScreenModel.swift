@@ -238,19 +238,42 @@ struct ConfigEditor {
             }
         }
 
-        /// A paragraph shown above the rows, for the tabs whose trade-off isn't obvious from the row
-        /// names alone. The Lazy Tools tab needs it: what "core" costs and what "auxiliary" costs are
-        /// two different currencies (prompt tokens vs an extra round), and nothing on the row says so.
-        var explanation: String? {
+        /// What this tab is for, drawn as a titled box above its rows (see
+        /// ``ChatScreen/tabExplanationLines(_:width:)``). Each row already carries a summary of what
+        /// *it* does; this says what the tab as a whole governs, and names the trade-off being made -
+        /// which for several of these is the whole decision. Lazy Tools is the clearest case: "core"
+        /// and "auxiliary" cost two different currencies (prompt tokens against an extra round), and
+        /// nothing on the row itself says so.
+        var explanation: String {
             switch self {
+            case .capabilities:
+                return "What the agent can do at all. Each switch adds or removes a toolset from "
+                    + "every prompt - turn one off and the model cannot see those tools, let alone "
+                    + "call them. Fewer toolsets means a shorter prompt and a faster first token, so "
+                    + "leave off what this project does not need. A change takes effect on the next "
+                    + "query."
             case .lazyTools:
                 return "Core tools are in the model's prompt from the first token - always callable, "
                     + "and paid for on every single query. Auxiliary tools are not in the prompt at "
                     + "all: the agent finds them with search_tools and then calls them normally, so "
                     + "they cost nothing until they are needed, at the price of one extra round the "
                     + "first time. Moving a toolset re-prefills the prompt once, on the next query."
-            default:
-                return nil
+            case .sandbox:
+                return "Where the agent's shell commands actually run. In a container they cannot "
+                    + "touch your machine, at the cost of a container image and a slower first "
+                    + "command; locally they are immediate and real. Whichever you choose, the shell "
+                    + "still asks before it runs anything - this decides what a yes means."
+            case .context:
+                return "When a long conversation gets summarized. Every model here reports the "
+                    + "context window its own card documents, and some of those are far larger than "
+                    + "a laptop can actually hold - so this threshold, not the window, is what keeps "
+                    + "a session inside your memory. Compact earlier to stay small and cheap; later "
+                    + "to keep more of the conversation verbatim."
+            case .cache:
+                return "The prompt prefix kept on disk so a fresh launch skips the multi-second "
+                    + "prefill. It is pure cache - deleting any of it costs one slower turn and "
+                    + "nothing else - so the settings here are really just how much disk you are "
+                    + "willing to spend on faster first queries."
             }
         }
     }

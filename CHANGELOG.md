@@ -24,6 +24,11 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ### Changed
 
+- **Every `/config` tab says what it is for.** Each one now opens with a blue ⓘ box naming what that
+  tab governs and the trade-off you are making there - what a capability costs in prompt tokens, why
+  a container is slower than the local shell, why the compaction threshold rather than the model's
+  window is what keeps a session inside your memory, that the prefill cache is pure disk-for-speed.
+  Only Lazy Tools had one before, as plain grey text; the rows' own summaries are unchanged.
 - **`/model` → Local is a table now, grouped by family.** The flat two-line-per-model list is gone.
   Each model is one row - its name within the family, ✓ on disk / ○ not yet, the weight format, the
   download size, the **context window**, and the **tokens one turn may generate** - in aligned

@@ -25,8 +25,11 @@ struct LazyToolsConfigTests {
 
     @Test("The tab explains itself, because the trade-off is not visible in the row names")
     func tabCarriesAnExplanation() {
-        #expect(ConfigEditor.Tab.lazyTools.explanation != nil)
-        #expect(ConfigEditor.Tab.capabilities.explanation == nil) // only where it is needed
+        #expect(ConfigEditor.Tab.lazyTools.explanation.contains("search_tools"))
+        // Every tab says what it governs, not just the one whose trade-off is hardest to see.
+        for tab in ConfigEditor.Tab.allCases {
+            #expect(tab.explanation.count > 80, "\(tab.title) needs a real explanation")
+        }
     }
 
     @Test("Lazy tools is off by default and toggles with space")

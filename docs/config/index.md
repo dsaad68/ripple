@@ -175,6 +175,19 @@ with ←/→ and space acts on the highlighted row:
 - **Context** - how full the context may get before older turns are summarized.
 - **Cache** - the prefill cache switch, its limits, and what it is holding per model.
 
+Every tab opens with a blue ⓘ box saying what that tab governs and naming the trade-off you are
+making there - what a capability costs in prompt tokens, why a container is slower, why the
+compaction threshold rather than the window is what keeps a session inside your memory. Each row
+still explains itself underneath when you highlight it; the box is about the tab as a whole.
+
+```text
+╭─ ⓘ lazy tools ──────────────────────────────────────────────────────────────╮
+│ Core tools are in the model's prompt from the first token - always callable, │
+│ and paid for on every single query. Auxiliary tools are not in the prompt at │
+│ all: the agent finds them with search_tools and then calls them normally…    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
 Changes made in `/config` are written back to the project `settings.json`. The MCP tier is stored
 there too rather than in `mcp.json`, which may be a shared `.mcp.json` that other tools read.
 
