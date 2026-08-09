@@ -226,10 +226,16 @@ extension ChatScreen {
     /// change. An experimental tab gets the warning colour and says so in the title, so it cannot be
     /// mistaken for a settled setting.
     func tabExplanationLines(_ tab: ConfigEditor.Tab, width: Int) -> [Line] {
-        infoBoxLines(
+        var out = infoBoxLines(
             title: tab.title.lowercased() + (tab.isExperimental ? " - EXPERIMENTAL!" : ""),
             text: tab.explanation, width: width, warning: tab.isExperimental
         )
+        // A prerequisite the machine may not have gets its own amber box under the explanation,
+        // rather than a clause inside it - it is a thing to go and do, not a thing to understand.
+        if let requirement = tab.requirement {
+            out += infoBoxLines(title: requirement.title, text: requirement.text, width: width, warning: true)
+        }
+        return out
     }
 
     /// A titled ⓘ box: what the panel you are looking at is for, drawn above its rows. Blue - the same

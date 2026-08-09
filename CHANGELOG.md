@@ -8,6 +8,18 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Changed
+
+- **Lazy tools says what it costs on a small planner, and which toolset to move first.** The `/config`
+  tab and the docs now warn that the feature wants a capable planner - the smallest models search less
+  reliably and one was seen answering from a tool's *description* instead of calling it, inventing a note
+  it had never read (fixed upstream in DeepAgents, which now tells the model after every search that it
+  received definitions rather than results). Both also name `filesystem` as the toolset worth making
+  auxiliary first: a small planner surface-matches the request against the schema in front of it, so
+  "list my apple notes" reaches for `ls` and "read my clipboard" for `read_file`, and taking those out of
+  the prompt removes the wrong answer instead of arguing with it - 3/8 to 4/5 on a 2.6B, after three
+  rewrites of the prompt had barely moved it. See `STEPS/ISSUES/tool-search-small-planners.md`.
+
 ### Fixed
 
 - **The context meter read far below the truth.** The status line's percentage was a running tally of
@@ -50,6 +62,12 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 - **Every list overlay says what it is.** `/model`'s three tabs, `/tools` and `/mcp` open with the
   same blue ⓘ box the `/config` tabs carry - what the list is, and what enter does to a row (which on
   Local and Remote changes as you drill in).
+- **The Sandbox tab says it needs Apple Containers.** A second amber ⚠ box under the explanation,
+  titled `needs apple containers`: the sandbox runs on Apple's `container` tool, which is not part of
+  macOS, and nothing on the tab hinted that its one switch depends on something you have to install.
+  It names the install and `container system start`, and spells out what happens without it -
+  `failover` falls back to the *local* shell, so commands still run, just unsandboxed. The README and
+  docs carry the same prerequisite.
 - **Lazy tools is flagged experimental.** Its `/config` tab opens with an amber ⚠ box titled
   `lazy tools - EXPERIMENTAL!` rather than the blue ⓘ the settled tabs carry, and the text leads with
   why: a tool the model cannot see is a tool it may not think to look for, so a tiering that suits

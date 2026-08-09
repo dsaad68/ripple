@@ -243,6 +243,27 @@ struct ConfigEditor {
         /// can see, which is a different order of risk from the other tabs' settings.
         var isExperimental: Bool { self == .lazyTools }
 
+        /// Something this tab's feature needs from the machine that macOS does not ship, drawn as a
+        /// second amber ⚠ box under the explanation. The Sandbox tab needs it: nothing on the tab
+        /// hints that its one switch depends on a tool you have to install yourself, and without that
+        /// tool `failover` silently runs commands on the host - the opposite of what turning a sandbox
+        /// on is meant to do.
+        var requirement: (title: String, text: String)? {
+            switch self {
+            case .sandbox:
+                return (
+                    "needs apple containers",
+                    "The sandbox runs on Apple's `container` tool, which is not part of macOS: "
+                        + "install it from github.com/apple/container and run `container system "
+                        + "start`. Without it there is nothing to sandbox into - failover falls back "
+                        + "to the local shell (so commands still run, just unsandboxed) and "
+                        + "container-only refuses to run them at all."
+                )
+            default:
+                return nil
+            }
+        }
+
         /// What this tab is for, drawn as a titled box above its rows (see
         /// ``ChatScreen/tabExplanationLines(_:width:)``). Each row already carries a summary of what
         /// *it* does; this says what the tab as a whole governs, and names the trade-off being made -
@@ -260,12 +281,16 @@ struct ConfigEditor {
             case .lazyTools:
                 return "Experimental: a tool the model cannot see is a tool it may not think to look "
                     + "for, so a tiering that suits one project can quietly change how the agent "
-                    + "behaves in another. Turn it off if answers get worse. "
+                    + "behaves in another. Turn it off if answers get worse. It also wants a capable "
+                    + "planner: the smallest models search less reliably, and can answer from a tool's "
+                    + "description rather than calling it. "
                     + "Core tools are in the model's prompt from the first token - always callable, "
                     + "and paid for on every single query. Auxiliary tools are not in the prompt at "
                     + "all: the agent finds them with search_tools and then calls them normally, so "
                     + "they cost nothing until they are needed, at the price of one extra round the "
-                    + "first time. Moving a toolset re-prefills the prompt once, on the next query."
+                    + "first time. Moving a toolset re-prefills the prompt once, on the next query. "
+                    + "Filesystem is the one worth making auxiliary first: with ls out of the prompt, "
+                    + "a request to list something stops being answered with a directory listing."
             case .sandbox:
                 return "Where the agent's shell commands actually run. In a container they cannot "
                     + "touch your machine, at the cost of a container image and a slower first "

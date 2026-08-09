@@ -51,6 +51,29 @@ struct LazyToolsConfigTests {
         #expect(box.allSatisfy { TextWidth.of($0.text) == TextWidth.of(box[0].text) })
     }
 
+    @Test("The Sandbox tab warns that its one switch needs a tool macOS does not ship")
+    func sandboxTabStatesItsRequirement() throws {
+        #expect(ConfigEditor.Tab.allCases.filter { $0.requirement != nil } == [.sandbox])
+        let requirement = try #require(ConfigEditor.Tab.sandbox.requirement)
+        #expect(requirement.title == "needs apple containers")
+        #expect(requirement.text.contains("github.com/apple/container")) // where to get it
+        #expect(requirement.text.contains("container system start")) // ...and what to run after
+
+        // Two boxes on that tab - the blue explanation, then the amber requirement - and the rows
+        // still follow. A tab with no requirement gets one box.
+        let screen = makeScreen()
+        let sandbox = screen.tabExplanationLines(.sandbox, width: 100)
+        let borders = sandbox.filter { $0.text.contains("╭─") }
+        #expect(borders.count == 2)
+        #expect(borders[0].text.contains("ⓘ"))
+        #expect(borders[1].text.contains("⚠"))
+        #expect(borders[1].text.contains("needs apple containers"))
+        #expect(screen.tabExplanationLines(.context, width: 100).filter { $0.text.contains("╭─") }.count == 1)
+        // Both boxes keep the panel aligned.
+        let boxed = sandbox.filter { !$0.text.isEmpty }
+        #expect(boxed.allSatisfy { TextWidth.of($0.text) == TextWidth.of(boxed[0].text) })
+    }
+
     private func makeScreen() -> ChatScreen {
         let agent = RippleDeepAgent.make(textModel: FakeChatModel(answer: "x"))
         return ChatScreen(variant: DeepAgentVariant.all[0], agent: agent, build: { _, _ in nil }, gate: ApprovalGate())

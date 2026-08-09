@@ -54,6 +54,9 @@ remove. The **Remote** tab browses OpenRouter's free catalog the same way, with 
 
 - macOS 26+ (Tahoe), Apple Silicon (arm64)
 - Xcode 26+ only if you build from source (the prebuilt `brew install dsaad68/tap/ripple` needs no Xcode)
+- [Apple's `container` tool](https://github.com/apple/container) only for the shell sandbox
+  (`/config` → Sandbox). It is not part of macOS; without it `failover` runs commands in the local
+  shell and `container-only` refuses to run them.
 
 ## Install
 

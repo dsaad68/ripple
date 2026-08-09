@@ -28,9 +28,12 @@ struct PlanPanelTests {
             #expect(lines.count >= 4) // top border, at least one text row, bottom border, a blank
             #expect(lines[0].text.contains(tab.title.lowercased())) // the tab names its own box
             #expect(lines.last?.text.isEmpty == true) // breathing room before the rows
-            let box = lines.dropLast()
-            let boxWidth = TextWidth.of(box[0].text)
-            for line in box { #expect(TextWidth.of(line.text) == boxWidth, "\(tab.title) at \(width)") }
+            // One box, or two where the tab also states a requirement - and every drawn row in them
+            // is the same width, which is what keeps the borders lined up.
+            let boxed = lines.filter { !$0.text.isEmpty } // the blanks between / after boxes
+            #expect(boxed.filter { $0.text.contains("╭─") }.count == (tab.requirement == nil ? 1 : 2))
+            let boxWidth = TextWidth.of(boxed[0].text)
+            for line in boxed { #expect(TextWidth.of(line.text) == boxWidth, "\(tab.title) at \(width)") }
         }
     }
 

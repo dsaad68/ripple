@@ -112,6 +112,13 @@ Controls which tools and middleware are active and how tool calls are gated.
   unavailable.
 - `"container-only"` - run in an Apple Container; refuse if the container is unavailable.
 
+!!! warning "Needs Apple Containers"
+    The sandbox runs on [Apple's `container` tool](https://github.com/apple/container), which is not
+    part of macOS: install it and run `container system start`. Without it there is nothing to
+    sandbox into - `failover` falls back to the local shell (so commands still run, just
+    unsandboxed) and `container-only` refuses to run them at all. The `/config` **Sandbox** tab says
+    so in amber, next to the switch.
+
 See [Sandbox & shell](../sandbox.md) for the full sandbox documentation.
 
 The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Override it with
@@ -125,6 +132,14 @@ The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Overr
     A tool the model cannot see is a tool it may not think to look for, so a tiering that suits one
     project can quietly change how the agent behaves in another. It is off by default, and the
     `/config` tab flags it in amber. Turn it off if answers get worse.
+
+    **It wants a capable planner.** On the smallest on-device models the feature can make the agent
+    worse than leaving it off: they search less reliably, and one was observed answering *from a
+    tool's description instead of calling it* - inventing a note title, a note id and a note body it
+    had never read. Ripple now tells the model, immediately after every search, that what it received
+    are definitions rather than results and that nothing has run yet. That makes the failure loud
+    rather than silent; it does not make a 1.2B model competent. Prefer a mid-size planner or better,
+    and treat a confident answer that no tool call precedes as suspect.
 
 By default every enabled tool's JSON schema is written into the model's prompt on every query. With
 around forty tools that is a large fixed cost paid before the model produces its first token, and
@@ -141,6 +156,18 @@ Turn `toolSearch` on and tools split into two tiers:
 
 Auxiliary tools are still gated by their approval mode - the tier decides what is prefilled, not
 what is permitted, so you will still see approval cards for tools you did not mark core.
+
+### Start with the filesystem
+
+`filesystem` is the toolset worth moving first, and not only for its size. A small planner picks its
+tool by surface-matching the request against the schema in front of it, so "**list** my apple notes"
+reaches for `ls` and "**read** my clipboard" reaches for `read_file` - both sitting right there in the
+prompt, both wrong. Taking them out of the prompt removes the wrong answer rather than arguing with
+it: measured on a 2.6B planner, the rate at which it called `search_tools` for an Apple Notes request
+went from 3/8 to 4/5 on that change alone, after three rewrites of the prompt had barely moved it.
+
+Whatever stays core becomes the next attractor, so expect the same effect at smaller scale from `text`
+(`head`, `tail`) and `search` (`grep`, `glob`).
 
 Two tools are always present when the feature is on: `search_tools`, and `run_tool` for a planner
 that will not call a tool absent from its own schema.
