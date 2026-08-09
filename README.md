@@ -43,6 +43,12 @@ normally, costing nothing until they are needed. Matching is lexical by default,
 on-device ColBERT encoder (`ripple model pull mlx-community/LFM2.5-ColBERT-350M-8bit`). See
 [Lazy tools](https://ripple.verybad.engineer/config/#lazy-tools).
 
+**Pick a model without leaving the chat.** `/model` → **Local** lays the on-device catalog out as a
+table, grouped by family and tagged `Text` / `Vision` / `Text + Vision` / `Embedding`, with each
+row's download state, weight format, size, context window and per-turn output budget in aligned
+columns. Type to filter it, **enter** to download, **ctrl-x** to remove. See
+[Local MLX models](https://ripple.verybad.engineer/models/local/).
+
 ## Requirements
 
 - macOS 26+ (Tahoe), Apple Silicon (arm64)

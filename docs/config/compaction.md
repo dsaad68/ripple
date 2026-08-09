@@ -15,6 +15,13 @@ tool schemas. Tool schemas are included because the model re-reads them on every
 with many tools compacts at the right time rather than overflowing while the raw message count
 still looks small.
 
+The meter is measured from the agent after every turn (and after a compaction, a `/model` switch, a
+`/config` rebuild, and `/fresh`) - it is the *same* number the automatic trigger below tests, not a
+parallel estimate, so the two can never disagree. That also means it counts what never streams as
+assistant text: an empty session already reads a few percent, because the prompt and tool schemas
+are paid before you type anything, and a turn that reads a large file jumps the meter even though
+the model generated only a sentence.
+
 Token counts are approximate (roughly 4 characters per token, uniform across all backends, since
 no backend exposes a live tokenizer counter). The 20% headroom below the trigger threshold is
 sized to absorb this imprecision.

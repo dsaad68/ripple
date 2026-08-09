@@ -8,6 +8,45 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+### Fixed
+
+- **The context meter read far below the truth.** The status line's percentage was a running tally of
+  what the UI watched stream past - the user's prompt, plus one per generated token - so it counted
+  neither the tool schemas (paid on *every* request, and never streamed) nor any tool result (a file
+  read, shell output, a search), which is most of a real context. An empty session showed 0% when the
+  prompt already cost thousands of tokens, a turn that read a large file barely moved the needle, and
+  automatic compaction fired at what looked like a fraction of the window. `/fresh` didn't reset it
+  either. The meter is now measured from the agent - the new `ReactAgent.contextTokens(threadId:)`,
+  the same number the compaction trigger tests itself against - after every turn, compaction, model
+  switch, `/config` rebuild and `/fresh`, and seeded at launch (so a resumed session opens with its
+  real size). Per-token nudges still move it mid-turn; the measurement settles it at the end. This is
+  the behaviour [the compaction docs](docs/config/compaction.md) already described.
+
+### Changed
+
+- **`/model` → Local is a table now, grouped by family.** The flat two-line-per-model list is gone.
+  Each model is one row - its name within the family, ✓ on disk / ○ not yet, the weight format, the
+  download size, the **context window**, and the **tokens one turn may generate** - in aligned
+  columns, under a heading per family tagged with what it is for - `LFM2.5 · Text`,
+  `Ornith · Text + Vision`, `LFM2.5-ColBERT · Embedding`. Chat models come first, then the vision
+  models, and the `search_tools` retrieval encoders last, so an embedding model is no longer mixed in
+  among the models you can chat to, and a unified VLM no longer reads as text-only. The Hugging Face
+  id, what the model is for, and the "default" note move to a subtitle under the highlighted row,
+  which halves the list's height. A summary line above it reports how much of the catalog is showing
+  and what the downloaded models cost on disk.
+- **The Local tab is searchable, like the Remote one.** It carries the same bordered input: type to
+  narrow the list, backspace to edit, ctrl-u to clear. The query matches a model's name, family, id,
+  weight format and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all work, and the
+  highlighted model stays highlighted as the query is refined. **esc** clears the query before it
+  closes the overlay. Because printable keys are now the search, **removing a model is ctrl-x**, not
+  `x`.
+- **The banner and status line name the model family-first.** `LFM2.5 · 1.2B Instruct` rather than a
+  bare `1.2B Instruct`, which said nothing about *which* 1.2B once several families were downloaded.
+  Same in the vision row and the model-switch notes.
+- **The Select tab's model picker and `ripple model list` carry the same facts.** Picking a main agent
+  or vision model shows each local option's purpose, weight format, size and context window; `ripple
+  model list` is grouped by family and lists the context window and output budget alongside the size.
+
 ## [0.7.0] - 2026-08-09
 
 ### Added

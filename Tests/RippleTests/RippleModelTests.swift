@@ -68,18 +68,121 @@ struct RippleModelTests {
         #expect(CLIProgressBar.barString(fraction: 0, width: 10).filter { $0 == "█" }.count == 0)
     }
 
-    @Test("The /models-config browser has one row per catalog model, flagged by downloaded state")
+    @Test("The Local tab has one row per catalog model, in section order, flagged by downloaded state")
     func modelsBrowserMatchesCatalog() {
-        let browser = makeScreen().makeModelsBrowser()
+        let screen = makeScreen()
+        let browser = screen.makeModelsBrowser()
         #expect(browser.isModels)
         #expect(browser.title == "Local models")
         #expect(browser.groups.count == MlxModel.catalog.count)
-        for (group, model) in zip(browser.groups, MlxModel.catalog) {
-            #expect(group.title == model.displayName)
+        // The rows follow `localModelRows` (sectioned), not raw catalog order - the indices the
+        // download / remove keys use.
+        #expect(Set(screen.localModelRows.map(\.id)) == Set(MlxModel.catalog.map(\.id)))
+        for (group, model) in zip(browser.groups, screen.localModelRows) {
+            #expect(group.title == model.variantName) // the family lives in the heading, not every row
             #expect(group.downloaded == ModelCache.isDownloaded(model.id)) // reflects the real cache
-            #expect(group.trailing != nil) // size + ✓/○, replacing the tool count
-            #expect(group.subtitle?.contains(model.id) == true) // the id is the dimmed subtitle
+            #expect(group.trailing != nil) // the ✓/○ + format / size / context / output columns
+            #expect(group.subtitle?.contains(model.id) == true) // the id is the highlighted row's subtitle
+            #expect(group.subtitleOnSelection) // ...and only that row's
         }
+    }
+
+    @Test("Each family opens a section tagged with what it is for, encoders last")
+    func modelsBrowserSectionsByFamily() {
+        let screen = makeScreen()
+        let headings = screen.makeModelsBrowser().groups.compactMap(\.section)
+        #expect(headings.map(\.title) == ["LFM2.5", "Ornith", "Qwen3.6", "Gemma 4", "LFM2.5-VL", "LFM2.5-ColBERT"])
+        #expect(headings.map(\.tag) == ["Text", "Text + Vision", "Text", "Text", "Vision", "Embedding"])
+        // One heading per family, on that family's first row only.
+        #expect(screen.makeModelsBrowser().groups.filter { $0.section != nil }.count == headings.count)
+    }
+
+    @Test("A row's columns carry the size, context window and output budget")
+    func modelRowColumnsCarryTheNumbers() {
+        guard let model = MlxModel.catalog.first(where: { $0.id.contains("Qwen3.6-27B") }) else {
+            Issue.record("the Qwen3.6 27B row is expected in the catalog")
+            return
+        }
+        let columns = ChatScreen.modelColumns(model)
+        #expect(columns.contains("20.0 GB"))
+        #expect(columns.contains("262k ctx")) // the card's native window
+        #expect(columns.contains("32k out")) // what `agentParameters` will generate
+        #expect(columns.contains("OptiQ 4-bit"))
+    }
+
+    @Test("An encoder row shows its size but no token columns - it generates nothing")
+    func retrieverRowHasNoTokenColumns() {
+        guard let model = MlxModel.retrieverCatalog.first else {
+            Issue.record("a retrieval encoder is expected in the catalog")
+            return
+        }
+        let columns = ChatScreen.modelColumns(model)
+        #expect(columns.contains(model.sizeLabel))
+        #expect(!columns.contains("ctx"))
+        #expect(!columns.contains("out"))
+    }
+
+    @Test("The Local tab's search narrows the rows and keeps the indices aligned")
+    func modelsBrowserSearchNarrowsRows() {
+        let screen = makeScreen()
+        screen.modelFilter = "thinking"
+        let rows = screen.localModelRows
+        #expect(!rows.isEmpty)
+        #expect(rows.allSatisfy { $0.id.contains("Thinking") })
+        #expect(screen.makeModelsBrowser().groups.count == rows.count)
+
+        screen.modelFilter = "embedding" // the role tag is searchable, not just the name
+        #expect(screen.localModelRows.allSatisfy { $0.kind == .retriever })
+
+        screen.modelFilter = "vision" // ...and a unified VLM is found by it too, though it is cataloged text
+        #expect(screen.localModelRows.contains { $0.id.contains("Ornith") })
+
+        screen.modelFilter = "no-such-model"
+        #expect(screen.localModelRows.isEmpty)
+        #expect(screen.makeModelsBrowser().emptyMessage.contains("no-such-model"))
+    }
+
+    @Test("Typing filters the Local tab and ctrl-x removes, as on the Remote tab")
+    func modelsBrowserTypeToFilter() {
+        let screen = makeScreen()
+        screen.openModelHub(tab: .local)
+        #expect(screen.modelFilter.isEmpty)
+        for byte in Array("vl".utf8) { #expect(screen.handleModelsBrowserKey(byte)) }
+        #expect(screen.modelFilter == "vl")
+        #expect(screen.localModelRows.allSatisfy { $0.id.contains("VL") })
+        // 'x' is a query character now, not the remove key - ctrl-x is.
+        #expect(screen.handleModelsBrowserKey(0x78))
+        #expect(screen.modelFilter == "vlx")
+        #expect(screen.handleModelsBrowserKey(0x7F)) // backspace
+        #expect(screen.modelFilter == "vl")
+        // ctrl-x is the remove key: it is consumed rather than typed. Pressed here against a query
+        // that matches nothing, so the assertion never deletes a model from the real cache.
+        for byte in Array("-no-such-model".utf8) { _ = screen.handleModelsBrowserKey(byte) }
+        #expect(screen.localModelRows.isEmpty)
+        #expect(screen.handleModelsBrowserKey(0x18))
+        #expect(screen.modelFilter == "vl-no-such-model")
+
+        // Esc clears the query first, and only then closes the overlay.
+        screen.escapeModelHub()
+        #expect(screen.modelFilter.isEmpty)
+        #expect(screen.localModelRows.count == MlxModel.catalog.count)
+        #expect(screen.modelHub != nil)
+        screen.escapeModelHub()
+        #expect(screen.modelHub == nil)
+    }
+
+    @Test("Refining the query keeps the highlighted model highlighted")
+    func modelsBrowserSearchKeepsTheSelection() throws {
+        let screen = makeScreen()
+        screen.openModelHub(tab: .local)
+        for byte in Array("ornith".utf8) { _ = screen.handleModelsBrowserKey(byte) }
+        let browser = try #require(screen.toolsBrowser)
+        screen.toolsBrowser?.groupIndex = browser.groups.count - 1 // the 8-bit row
+        let wanted = screen.selectedLocalModelID
+        #expect(wanted?.contains("8bit") == true)
+        _ = screen.handleModelsBrowserKey(0x20) // " " - still matches nothing new, list unchanged
+        _ = screen.handleModelsBrowserKey(0x7F)
+        #expect(screen.selectedLocalModelID == wanted) // not reset to the top
     }
 
     @Test("Model management is unified under /model (the standalone /models-config is retired)")

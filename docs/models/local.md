@@ -87,8 +87,9 @@ ripple model list
 ripple model ls          # alias
 ```
 
-Prints every model currently in the Hugging Face cache that Ripple recognizes, along with its
-disk footprint.
+Prints the built-in catalog grouped by family (chat models first, retrieval encoders last), marking
+each row **✓ downloaded / ○ not yet** and listing what it is for, its weight format, disk footprint,
+context window, and per-turn output budget - the same facts the `/model` Local tab tabulates.
 
 ### Download models
 
@@ -144,12 +145,41 @@ repo directory entirely.
 
 ## The `/model` Local tab
 
-Inside an interactive session, type `/model` and switch to the **Local** tab. It shows the
-Hugging Face catalog of supported MLX models with their size and download status. Press **enter**
-to download the highlighted model and **x** to remove it - both without leaving the chat. A live
-progress bar is drawn at the top of the tab (and the row being fetched shows its percentage);
-**esc** cancels the download, and partial files resume on the next pull. Once complete the model
-becomes immediately selectable in the **Select** tab.
+Inside an interactive session, type `/model` and switch to the **Local** tab. It lays the catalog
+out as a table, one row per model, grouped under a heading per family - the chat models first, then
+the vision models, and the retrieval encoders behind `search_tools` last, so an embedding model is
+never mixed in with something you can chat to:
+
+```text
+  LFM2.5  ·  Text ──────────────────────────────────────────────────
+❯ 1.2B Instruct  ✓   8-bit         1.3 GB   32k ctx   4k out
+    Instruct  ·  LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit
+  1.2B Thinking  ○   bf16          2.4 GB   32k ctx   8k out
+
+  Ornith  ·  Text + Vision ─────────────────────────────────────────
+  1.0 9B         ✓   4-bit         5.2 GB  262k ctx   8k out
+```
+
+Each heading is tagged with what its family is for - **Text**, **Vision**, **Embedding**, or
+**Text + Vision** for a unified VLM like Ornith, which plans *and* sees images, so it lists in both
+the main-agent and vision pickers.
+
+Each row carries, in order: the name within its family, **✓ on disk / ○ not yet**, the weight
+format, the download size, the model's context window, and the tokens it may generate in one turn
+(reasoning included). The full Hugging Face id - plus what the model is for and whether the default
+preset uses it - sits under whichever row is highlighted. Above the list, a summary line reports how
+much of the catalog is showing and what the downloaded models cost on disk.
+
+Press **enter** to download the highlighted model and **ctrl-x** to remove it - both without leaving
+the chat. A live progress bar is drawn at the top of the tab (and the row being fetched shows its
+percentage); **esc** cancels the download, and partial files resume on the next pull. Once complete
+the model becomes immediately selectable in the **Select** tab.
+
+**Type to filter**, exactly as on the Remote tab: the query matches a model's name, family, id,
+weight format, and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all narrow the
+list, and the highlighted model stays highlighted as you refine it. Backspace edits the query,
+ctrl-u clears it, and **esc** clears it before it closes the overlay. Because printable keys are
+spoken for by the search, removing a model is **ctrl-x** rather than `x`.
 
 ---
 

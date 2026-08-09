@@ -178,6 +178,8 @@ extension ChatScreen {
         if let newAgent = await build(variant, policy) {
             agent = newAgent
             // Keep the same session across a `/config` rebuild - only the capability set changes.
+            // A different tool set is a different prompt overhead, so the meter is re-measured.
+            refreshContextMeter()
         }
         loading = false
         requestRender()

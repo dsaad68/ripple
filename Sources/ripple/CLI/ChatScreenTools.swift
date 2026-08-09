@@ -408,21 +408,21 @@ extension ChatScreen {
         return out
     }
 
-    /// A bordered filter input for the OpenRouter pane, matching the main input box: a rounded box
+    /// A bordered filter input for the Local / Remote panes, matching the main input box: a rounded box
     /// spanning the panel's inner width with the `❯` prompt, the live query (its tail when long) or a
     /// placeholder, and a thin cursor (the menu hides the terminal's own). Returned as three body rows.
-    func filterFieldBox(width: Int) -> [Line] {
+    func filterFieldBox(width: Int, text: String, placeholder: String) -> [Line] {
         let fw = max(8, width - 4) // the box spans the panel's inner content width
         let edge = Theme.border.xterm
         let textArea = max(1, fw - 6) // inside "│ ❯ " (4) … " │" (2)
-        let plain = openRouterFilter.isEmpty
-            ? "type to filter…"
-            : String(openRouterFilter.suffix(textArea - 1)) // tail, leaving a column for the cursor
+        let plain = text.isEmpty
+            ? placeholder
+            : String(text.suffix(textArea - 1)) // tail, leaving a column for the cursor
         let shown = String(plain.prefix(textArea))
-        let styled = openRouterFilter.isEmpty
+        let styled = text.isEmpty
             ? Paint.fg(240, shown)
             : Paint.fg(252, shown) + Paint.fg(Theme.accent.xterm, "▏")
-        let used = TextWidth.of(shown) + (openRouterFilter.isEmpty ? 0 : 1)
+        let used = TextWidth.of(shown) + (text.isEmpty ? 0 : 1)
         let pad = String(repeating: " ", count: max(0, textArea - used))
         let rule = String(repeating: "─", count: fw - 2)
         return [
@@ -449,9 +449,15 @@ extension ChatScreen {
             // A real bordered filter input (matching the main input box) so the user sees what they
             // typed; the provider / count context sits dim below it.
             let shown = browser.groups.count
-            innerHeader += filterFieldBox(width: width)
+            innerHeader += filterFieldBox(width: width, text: openRouterFilter, placeholder: "type to filter…")
             let context = openRouterProvider.map { "› \($0)  ·  \(shown) models" } ?? "\(shown) providers"
             innerHeader.append(Line(Paint.fg(240, context)))
+        }
+        if browser.isModels {
+            // The same bordered search input the Remote tab carries, over an inventory line: how much
+            // of the catalog is showing, and what the downloaded models cost on disk.
+            innerHeader += filterFieldBox(width: width, text: modelFilter, placeholder: "type to filter…")
+            innerHeader.append(Line(Paint.fg(240, localModelsSummary(shown: browser.groups.count))))
         }
         // The overlay block that normally carries the download bar is hidden while a menu is open, so
         // the Local tab draws the live bar itself - without it, an enter-triggered pull is invisible
@@ -466,9 +472,12 @@ extension ChatScreen {
         } else if browser.isOpenRouter {
             footerText = "←→ tabs · ↑↓ select · type to filter · enter open · esc close"
         } else if browser.isModels {
-            footerText = downloading == nil
-                ? "←→ tabs · ↑↓ select · enter download · x remove · esc close"
-                : "←→ tabs · ↑↓ select · esc cancel download"
+            if downloading != nil {
+                footerText = "←→ tabs · ↑↓ select · esc cancel download"
+            } else {
+                footerText = "←→ tabs · ↑↓ select · type to filter · enter download · ctrl-x remove · esc "
+                    + (modelFilter.isEmpty ? "close" : "clear")
+            }
         } else if browser.isMCP {
             // Only advertise r/x when the highlighted row is a server that can actually sign in (and
             // we're in the list, not an opened group's tool detail) - `handleMCPBrowserKey` ignores r/x
@@ -485,23 +494,24 @@ extension ChatScreen {
             return (chrome, innerHeader, [[Line(Paint.fg(244, browser.emptyMessage))]])
         }
         let labelWidth = browser.groups.map { TextWidth.of($0.title) }.max() ?? 0
-        // The Local row being pulled right now (its rows are in catalog order): its ✓/○ becomes a
-        // live percentage so the enter press has row-level feedback.
+        // The Local row being pulled right now: its ✓/○ becomes a live percentage so the enter press
+        // has row-level feedback. Indexed against the rows on screen, which a search has narrowed.
         let pullingIndex: Int? = browser.isModels
-            ? downloading.flatMap { pull in MlxModel.catalog.firstIndex { $0.id == pull.modelID } }
+            ? downloading.flatMap { pull in localModelRows.firstIndex { $0.id == pull.modelID } }
             : nil
         let groups: [[Line]] = browser.groups.enumerated().map { index, group in
             let selected = index == browser.groupIndex
             let marker = selected ? Paint.arrow("❯") : " "
             let pad = String(repeating: " ", count: max(2, labelWidth + 2 - TextWidth.of(group.title)))
             let count = group.tools.count == 1 ? "1 tool" : "\(group.tools.count) tools"
-            var right = group.trailing ?? Paint.fg(240, count) // models show size + ✓/○ instead of a count
+            var right = group.trailing ?? Paint.fg(240, count) // models show their columns instead of a count
             if index == pullingIndex, let pull = downloading {
                 right = Paint.fg(141, "◇ " + String(format: "%d%%", Int((pull.fraction * 100).rounded())))
             }
             let row = "\(marker) " + Paint.fg(selected ? 252 : 245, group.title) + pad + right
-            var block: [Line] = [Line(row, .openToolGroup(index), highlight: selected)]
-            if let subtitle = group.subtitle {
+            var block: [Line] = group.section.map { sectionHeaderLines($0, first: index == 0, width: width) } ?? []
+            block.append(Line(row, .openToolGroup(index), highlight: selected))
+            if let subtitle = group.subtitle, selected || !group.subtitleOnSelection {
                 // Band the subtitle too (the whole entry highlights), brightening it on the band so it
                 // stays legible - the dim border grey would vanish on the selection background.
                 let subColor = selected ? Theme.dim.xterm : Theme.border.xterm
@@ -510,6 +520,30 @@ extension ChatScreen {
             return block
         }
         return (chrome, innerHeader, groups)
+    }
+
+    /// A section heading above the first row of a family in the Local tab: the family name, its dim
+    /// role tag ("language" / "vision" / "embedding"), and a rule running out to the panel edge. Every
+    /// heading but the first is preceded by a blank line, so the families read as separate blocks.
+    private func sectionHeaderLines(_ section: (title: String, tag: String), first: Bool, width: Int) -> [Line] {
+        // "  " + title + "  ·  " + tag + " " + rule, filling the panel's inner width (width - 4). The
+        // title starts under the rows' names, so a section reads as a heading over its own column.
+        let used = 2 + TextWidth.of(section.title) + 5 + TextWidth.of(section.tag) + 1
+        let header = "  " + Paint.fg(Theme.agent.xterm, section.title)
+            + Paint.fg(Theme.border.xterm, "  ·  ") + Paint.fg(Theme.faint.xterm, section.tag)
+            + " " + Paint.fg(Theme.border.xterm, String(repeating: "─", count: max(2, width - 4 - used)))
+        return first ? [Line(header)] : [Line(""), Line(header)]
+    }
+
+    /// The Local tab's inventory line: how many catalog rows are showing (and out of how many, while a
+    /// search narrows them), then the catalog-wide count of what is downloaded and roughly what it
+    /// occupies - a whole-disk figure the search must not appear to shrink.
+    private func localModelsSummary(shown: Int) -> String {
+        let downloaded = MlxModel.catalog.filter { ModelCache.isDownloaded($0.id) }
+        let onDisk = downloaded.reduce(0.0) { $0 + $1.approxGB }
+        let scope = modelFilter.isEmpty ? "\(shown) models" : "\(shown) of \(MlxModel.catalog.count) models"
+        let size = onDisk >= 1 ? String(format: "%.1f GB", onDisk) : String(format: "%.0f MB", onDisk * 1024)
+        return "\(scope)  ·  \(downloaded.count) downloaded  ·  ~\(size) on disk"
     }
 
     /// The highest first-group index that still fills `bodyHeight` (so scrolling never strands the

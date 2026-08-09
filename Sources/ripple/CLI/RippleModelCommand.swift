@@ -28,13 +28,21 @@ enum RippleModelCommand {
     private static func list(_: [String]) {
         let defaults = Set(defaultVariant.modelIDs)
         out(Paint.fg(245, "Local models") + Paint.fg(240, "  (✓ downloaded · ○ not yet)"))
-        for model in MlxModel.catalog {
-            let mark = ModelCache.isDownloaded(model.id) ? Paint.fg(114, "✓") : Paint.fg(240, "○")
-            var tags = [model.detail, model.sizeLabel]
-            if defaults.contains(model.id) { tags.append("default") }
-            out("  " + mark + " " + Paint.bold(model.displayName)
-                + Paint.fg(240, "  ·  " + tags.joined(separator: "  ·  ")))
-            out("    " + Paint.fg(244, model.id))
+        // Sectioned by family, chat models first and the retrieval encoders last - the same grouping
+        // the `/model` Local tab uses, so the two listings read alike.
+        for section in MlxModel.sections(of: MlxModel.catalog) {
+            out("")
+            out("  " + Paint.fg(141, section.family.title) + Paint.fg(240, "  ·  " + section.roleLabel))
+            for model in section.models {
+                let mark = ModelCache.isDownloaded(model.id) ? Paint.fg(114, "✓") : Paint.fg(240, "○")
+                var tags = [model.capabilityLabel, model.quantizationLabel, model.sizeLabel]
+                if model.kind != .retriever { tags.append(ChatScreen.formatContext(model.contextWindowTokens) + " ctx") }
+                if let output = model.maxOutputTokens { tags.append(ChatScreen.formatContext(output) + " out") }
+                if defaults.contains(model.id) { tags.append("default") }
+                out("  " + mark + " " + Paint.bold(model.variantName)
+                    + Paint.fg(240, "  ·  " + tags.filter { !$0.isEmpty }.joined(separator: "  ·  ")))
+                out("    " + Paint.fg(244, model.id))
+            }
         }
 
         // User-registered OpenAI-compatible models, if any (from `.ripple/settings.json`). These are

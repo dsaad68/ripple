@@ -67,15 +67,13 @@ struct PlanPanelTests {
     @Test(arguments: [44, 60, 80])
     func openRouterFilterIsABorderedInputBox(width: Int) {
         let screen = makeScreen()
-        screen.openRouterFilter = "llama"
-        let typed = screen.filterFieldBox(width: width)
+        let typed = screen.filterFieldBox(width: width, text: "llama", placeholder: "type to filter…")
         #expect(typed.count == 3) // top border, field row, bottom border
         for line in typed { #expect(TextWidth.of(line.text) == width - 4) } // spans the panel's inner width
         #expect(typed[1].text.contains("llama"))
         #expect(typed[1].text.contains("▏")) // the cursor
 
-        screen.openRouterFilter = ""
-        let empty = screen.filterFieldBox(width: width)
+        let empty = screen.filterFieldBox(width: width, text: "", placeholder: "type to filter…")
         #expect(empty[1].text.contains("type to filter"))
         #expect(!empty[1].text.contains("▏")) // placeholder, no cursor
     }

@@ -228,10 +228,16 @@ struct ModelSelectEditor {
         return ""
     }
 
-    /// A choosable model's label: a catalog model's short name + detail, a remote model tagged "remote",
-    /// else the raw id.
+    /// A choosable model's label: a catalog model's name with what it's for, its weight format, size
+    /// and context window (the same facts the Local tab's columns carry, so picking a main agent
+    /// doesn't mean switching tabs to compare); a remote model tagged "remote"; else the raw id.
     func modelLabel(_ id: String) -> String {
-        if let model = MlxModel.catalog.first(where: { $0.id == id }) { return "\(model.shortName)  \(model.detail)" }
+        if let model = MlxModel.catalog.first(where: { $0.id == id }) {
+            return [
+                model.displayName, model.capabilityLabel, model.quantizationLabel, model.sizeLabel,
+                ChatScreen.formatContext(model.contextWindowTokens) + " ctx"
+            ].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+        }
         if remote.contains(where: { $0.name == id }) { return "\(id)  remote" }
         return id
     }
@@ -298,6 +304,7 @@ extension ChatScreen {
             toolsBrowser = nil
             modelHub?.select.remote = RippleModelConfig.loadModels(workingDirectory: modelsWorkingDirectory)
         case .local:
+            modelFilter = ""
             toolsBrowser = makeModelsBrowser()
             toolsScrollTop = true
         case .remote:
@@ -329,7 +336,13 @@ extension ChatScreen {
                 closeModelHub()
             }
         case .local:
-            closeModelHub()
+            // Esc clears the search first (as on the Remote tab), and only then closes the hub.
+            if !modelFilter.isEmpty {
+                modelFilter = ""
+                rebuildModelsBrowser(keeping: nil)
+            } else {
+                closeModelHub()
+            }
         case .remote:
             if !openRouterFilter.isEmpty {
                 openRouterFilter = ""
@@ -351,6 +364,7 @@ extension ChatScreen {
         toolsBrowser = nil
         modelHub = nil
         modelEditingIdle = false
+        modelFilter = ""
         if let editor { applyModelSelect(editor) }
     }
 

@@ -61,7 +61,8 @@ Type `/model` at the prompt to open the model overlay. It has three tabs:
 === "Select"
 
     Presents all available planners - both downloaded local models and registered remote models -
-    as a single list. Selecting one makes it active for the session and writes `selectedModel` to
+    as a single list, each local one labelled with what it is for, its weight format, size and
+    context window. Selecting one makes it active for the session and writes `selectedModel` to
     `settings.json` so the choice persists across restarts. You can also set the idle timeout here.
 
     This tab is also where you turn **vision** on. Vision is off by default: the `vision` subagent
@@ -71,8 +72,11 @@ Type `/model` at the prompt to open the model overlay. It has three tabs:
 
 === "Local"
 
-    Browse the Hugging Face catalog of MLX-quantized models. Shows download status and size.
-    You can trigger a download without leaving the chat. See [Local MLX models](local.md).
+    Browse the Hugging Face catalog of MLX-quantized models as a table, grouped by family and tagged
+    **Text** / **Vision** / **Text + Vision** / **Embedding** (chat models first, the `search_tools`
+    retrieval encoders last). Each row shows its download status, weight format, size, context window
+    and per-turn output budget; type to filter, as on the Remote tab. You can trigger a download
+    without leaving the chat. See [Local MLX models](local.md).
 
 === "Remote"
 

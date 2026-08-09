@@ -181,6 +181,14 @@ struct ToolsBrowser {
         /// For the `/model` overlay's Local / Remote tabs: whether this model is on disk / added (gates
         /// the `x` remove key).
         var downloaded = false
+        /// A section heading drawn above this row - the family name plus a dim role tag ("LFM2.5",
+        /// "language"). Set on the first row of each section in the `/model` Local tab; nil everywhere
+        /// else, which draws no heading.
+        var section: (title: String, tag: String)?
+        /// Show ``subtitle`` only while this row is highlighted. The Local tab's rows carry their repo
+        /// id there: printing every one doubles the list's height for a string you only need on the row
+        /// you're about to act on.
+        var subtitleOnSelection = false
     }
 
     /// The overlay heading - "Tools by toolset" for `/tools`, "MCP servers" for `/mcp`.

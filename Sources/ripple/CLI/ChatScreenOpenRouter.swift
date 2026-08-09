@@ -216,7 +216,7 @@ extension ChatScreen {
     }
 
     /// A compact context-window label: `131072` -> "131k", `1048576` -> "1M".
-    static func formatContext(_ tokens: Int) -> String {
+    nonisolated static func formatContext(_ tokens: Int) -> String {
         if tokens >= 1_000_000 { return "\(tokens / 1_000_000)M" }
         if tokens >= 1000 { return "\(tokens / 1000)k" }
         return "\(tokens)"
