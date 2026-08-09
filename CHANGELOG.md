@@ -8,6 +8,121 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-09
+
+### Added
+
+- **`/config` → Lazy Tools: choose which tools are worth prefilling.** A new tab with the feature
+  switch, the retriever, how many matches a search returns, and a **core / auxiliary** tier per toolset
+  and per configured MCP server. Core tools are in the model's prompt from the first token and are paid
+  for on every query; auxiliary tools are not in the prompt at all - the agent finds them with
+  `search_tools` and then calls them normally, so they cost nothing until they are needed, at the price
+  of one extra round the first time. The tab carries a short explanation of that trade, and every row
+  below the switch is visibly locked (and says why) until the feature is on.
+
+  Off by default, and stored in `settings.json` under `toolPolicy` (`toolSearch`,
+  `auxiliaryMiddleware`, `auxiliaryTools`, `coreMCPServers`, `toolSearchModel`, `toolSearchLimit`), so
+  an existing project is unaffected until you open the tab. The MCP tier lives there rather than in
+  `mcp.json`, which may be a shared `.mcp.json` that other tools read.
+- **Retriever choice, with its download state.** Space cycles `lexical (no model)` → `ColBERT 350M
+  (8-bit)` → `ColBERT 350M (bf16)`, each showing `ready` or `not downloaded, 410 MB`. The ColBERT
+  encoders score every query token against every tool token (late interaction), which reads intent
+  considerably better than term overlap; lexical needs no model at all. Both models appear in `/model` →
+  **Local** like any other, so they can be pulled ahead of time (`ripple model pull
+  mlx-community/LFM2.5-ColBERT-350M-8bit`) and deleted. They can never be selected as a planner.
+- **The launch banner reports lazy tools** with a `tool search` row next to `main agent` / `vision`,
+  naming the retriever and how many tools are held back (`ColBERT 350M (8-bit) · 18 tools on demand`).
+  The count comes from the live agent, so a toolset tiered auxiliary but also disabled is not counted as
+  available. No row when the feature is off.
+- **`/tools` and `/mcp` show each tool's tier.** A filled `●` for a core tool, a hollow `○` plus an
+  `[auxiliary]` tag for one the agent has to search for, and a note on a toolset that is entirely
+  auxiliary; `/mcp` shows `tier: core|auxiliary` beside each server's approval mode. Without this an
+  auxiliary tool looked identical to a core one, which made a configured tier indistinguishable from a
+  setting that had been lost.
+
+### Changed
+
+- **Every `/config` tab says what it is for.** Each one now opens with a blue ⓘ box naming what that
+  tab governs and the trade-off you are making there - what a capability costs in prompt tokens, why
+  a container is slower than the local shell, why the compaction threshold rather than the model's
+  window is what keeps a session inside your memory, that the prefill cache is pure disk-for-speed.
+  Only Lazy Tools had one before, as plain grey text; the rows' own summaries are unchanged.
+- **`/model` → Local and Remote are the same view now.** Local was a flat twenty-one-row list with the
+  family repeated on every row, the repo id printed for all of them, no search, and nothing about the
+  two numbers that decide whether a model fits. It has the Remote tab's two levels instead: **model
+  families** first - split into **LLM** and **Embedding**, because a retrieval encoder has no LM head
+  and picking one as a planner only fails at load - then that family's models when you press enter,
+  under a heading per role (**Text**, **Vision**, **Text + Vision** for a unified VLM like Ornith
+  that plans *and* sees images). A family is the model line, so LFM2.5's vision conversions sit
+  inside it under the Vision heading rather than in a family of their own.
+
+  Each model row is one line of aligned columns: ✓ on disk / ○ not yet, the weight format, the
+  download size, the **context window**, and the **tokens one turn may generate**. The Hugging Face
+  id, what the model is for, and the "default" note move to a subtitle under the highlighted row,
+  which halves the list's height. Above it, the same context line the Remote tab carries.
+- **Remote model rows carry what Local's do.** The same ✓/○ marker, context window and output budget,
+  in the same cells, grouped by the same role headings - so comparing a free remote model with one
+  you could download is reading across rather than translating. Where a local row prices itself in
+  gigabytes a remote one is simply `free`; the output budget comes from the catalog's
+  `max_completion_tokens`, newly decoded.
+- **Every list overlay says what it is.** `/model`'s three tabs, `/tools` and `/mcp` open with the
+  same blue ⓘ box the `/config` tabs carry - what the list is, and what enter does to a row (which on
+  Local and Remote changes as you drill in).
+- **The Sandbox tab says it needs Apple Containers.** A second amber ⚠ box under the explanation,
+  titled `needs apple containers`: the sandbox runs on Apple's `container` tool, which is not part of
+  macOS, and nothing on the tab hinted that its one switch depends on something you have to install.
+  It names the install and `container system start`, and spells out what happens without it -
+  `failover` falls back to the *local* shell, so commands still run, just unsandboxed. The README and
+  docs carry the same prerequisite.
+- **Lazy tools is flagged experimental.** Its `/config` tab opens with an amber ⚠ box titled
+  `lazy tools - EXPERIMENTAL!` rather than the blue ⓘ the settled tabs carry, and the text leads with
+  why: a tool the model cannot see is a tool it may not think to look for, so a tiering that suits
+  one project can quietly change how the agent behaves in another. The docs and README say so too.
+- **The Local tab is searchable, like the Remote one.** It carries the same bordered input: type to
+  narrow the list, backspace to edit, ctrl-u to clear. The query matches a model's name, family, id,
+  weight format and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all work, and the
+  highlighted model stays highlighted as the query is refined. **esc** clears the query before it
+  closes the overlay. Because printable keys are now the search, **removing a model is ctrl-x**, not
+  `x`.
+- **The banner wraps instead of clipping.** In a narrow terminal the left pane cut its values off at
+  an ellipsis - `tool search  ColBERT 350M (8-bit) · 35 tools o…`, `available mcps: deepwiki, …` -
+  which is exactly the text the banner exists to show. Values now wrap onto continuation lines
+  indented under the label, and when the label leaves under ~18 columns beside it (a 58-column
+  terminal) the value takes the whole pane on its own lines rather than being broken mid-word.
+- **The banner and status line name the model family-first.** `LFM2.5 · 1.2B Instruct` rather than a
+  bare `1.2B Instruct`, which said nothing about *which* 1.2B once several families were downloaded.
+  Same in the vision row and the model-switch notes.
+- **The Select tab's model picker and `ripple model list` carry the same facts.** Picking a main agent
+  or vision model shows each local option's purpose, weight format, size and context window; `ripple
+  model list` is grouped by family and lists the context window and output budget alongside the size.
+- **Lazy tools says what it costs on a small planner, and which toolset to move first.** The `/config`
+  tab and the docs now warn that the feature wants a capable planner - the smallest models search less
+  reliably and one was seen answering from a tool's *description* instead of calling it, inventing a note
+  it had never read (fixed upstream in DeepAgents, which now tells the model after every search that it
+  received definitions rather than results). Both also name `filesystem` as the toolset worth making
+  auxiliary first: a small planner surface-matches the request against the schema in front of it, so
+  "list my apple notes" reaches for `ls` and "read my clipboard" for `read_file`, and taking those out of
+  the prompt removes the wrong answer instead of arguing with it - 3/8 to 4/5 on a 2.6B, after three
+  rewrites of the prompt had barely moved it. See `STEPS/ISSUES/tool-search-small-planners.md`.
+
+- **`--model` no longer accepts a retrieval encoder.** Planner ids are validated against the language
+  catalog rather than the whole model catalog, so a ColBERT id is rejected up front instead of booting
+  into a model that cannot load.
+
+### Fixed
+
+- **The context meter read far below the truth.** The status line's percentage was a running tally of
+  what the UI watched stream past - the user's prompt, plus one per generated token - so it counted
+  neither the tool schemas (paid on *every* request, and never streamed) nor any tool result (a file
+  read, shell output, a search), which is most of a real context. An empty session showed 0% when the
+  prompt already cost thousands of tokens, a turn that read a large file barely moved the needle, and
+  automatic compaction fired at what looked like a fraction of the window. `/fresh` didn't reset it
+  either. The meter is now measured from the agent - the new `ReactAgent.contextTokens(threadId:)`,
+  the same number the compaction trigger tests itself against - after every turn, compaction, model
+  switch, `/config` rebuild and `/fresh`, and seeded at launch (so a resumed session opens with its
+  real size). Per-token nudges still move it mid-turn; the measurement settles it at the end. This is
+  the behaviour [the compaction docs](docs/config/compaction.md) already described.
+
 ## [0.6.0] - 2026-08-08
 
 ### Added

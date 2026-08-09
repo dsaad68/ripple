@@ -24,7 +24,10 @@ final class ChatScreen {
     /// models. A `var` so the `/model` overlay's Remote (OpenRouter) tab can rebuild it (via
     /// ``reloadRemoteModels()``) when a model is added or removed, with no restart.
     var variants: [DeepAgentVariant]
-    var agent: ReactAgent
+    /// The live agent. Swapped on a `/model` switch or a `/config` rebuild; `agentGeneration` counts
+    /// those swaps so a measurement taken against an older agent can be discarded when it lands.
+    var agent: ReactAgent { didSet { agentGeneration += 1 } }
+    private(set) var agentGeneration = 0
     let build: Build
     /// The live tool policy (capabilities + approvals + sandbox), edited by `/config` and fed back
     /// into `build` to rebuild the agent. Persisted to `.ripple/tool-policy.json` under the working
@@ -95,7 +98,12 @@ final class ChatScreen {
     var contentHeight = 1
 
     // Status-bar context percentage + a throttled git snapshot (branch / dirty / ahead-behind).
-    var sessionTokens = 0 // approx tokens used this session (drives the context percentage)
+    /// What the next request costs, in the estimated tokens the status bar's context meter shows.
+    /// Measured from the agent (``ReactAgent/contextTokens(threadId:)`` - the stored thread plus the
+    /// system prompt and tool schemas) whenever the thread changes, and nudged up per streamed token
+    /// in between so the meter still moves mid-turn. It is *not* a running total of what streamed by:
+    /// that omits the schemas and every tool result, which is most of a real context.
+    var sessionTokens = 0
     var liveAssistant: Assistant? // the in-flight turn, for the live tokens/sec readout
     var gitInfo: String?
     var gitCheckedAt: Date?
@@ -133,6 +141,14 @@ final class ChatScreen {
     /// True while typing a numeric idle timeout in the Select tab's idle field (keystrokes fall through
     /// to the shared input buffer); mirrors `configEditingImage` for the container image.
     var modelEditingIdle = false
+
+    /// The Local tab's live search query, typed straight into the tab like the Remote one's (matched
+    /// against each catalog model's name, family, id, role and weight format). Empty = show all. With
+    /// printable keys spoken for, removing a model is ctrl-x rather than `x`.
+    var modelFilter = ""
+    /// The provider the Local tab is drilled into (``LocalProvider/key``, e.g. "LLM/LiquidAI"), or nil
+    /// while showing the grouped provider list. Mirrors `openRouterProvider` on the Remote tab.
+    var localFamily: String?
 
     // An in-progress model download (from the `/model` Local tab or a model switch), shown as a
     // progress bar above the input box; the task is cancellable with esc.
@@ -289,6 +305,9 @@ final class ChatScreen {
         askGate.onChange = { [weak self] in self?.seedAskUserState(); self?.render() } // ask_user form, off the key loop
         render()
         startIntro()
+        // Seed the context meter from the real prompt: an empty session already pays for the system
+        // prompt and the tool schemas, and a resumed one carries its whole history.
+        refreshContextMeter()
         // Process a whole input batch (one terminal read - typically a complete keystroke or mouse
         // packet) before requesting a single frame, so a multi-byte sequence or a fast wheel burst
         // costs one coalesced render, not one per byte.

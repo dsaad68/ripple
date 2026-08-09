@@ -31,7 +31,8 @@ struct OpenRouterCatalogTests {
     @Test func derivesProviderAndShortName() {
         let model = OpenRouterModel(
             id: "meta-llama/llama-3.3-70b-instruct:free",
-            name: "Meta: Llama 3.3 70B Instruct (free)", contextLength: 131_072, vision: false
+            name: "Meta: Llama 3.3 70B Instruct (free)", contextLength: 131_072,
+            maxCompletionTokens: nil, vision: false
         )
         #expect(model.providerSlug == "meta-llama")
         #expect(model.providerLabel == "Meta") // the name prefix before ": "
@@ -39,7 +40,7 @@ struct OpenRouterCatalogTests {
     }
 
     @Test func providerLabelFallsBackToSlugWithoutColon() {
-        let model = OpenRouterModel(id: "qwen/qwen3-4b:free", name: "qwen3 4b", contextLength: nil, vision: false)
+        let model = OpenRouterModel(id: "qwen/qwen3-4b:free", name: "qwen3 4b", contextLength: nil, maxCompletionTokens: nil, vision: false)
         #expect(model.providerLabel == "qwen") // no ": " in the name -> the slug
         #expect(model.shortName == "qwen3 4b")
     }

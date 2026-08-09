@@ -228,10 +228,16 @@ struct ModelSelectEditor {
         return ""
     }
 
-    /// A choosable model's label: a catalog model's short name + detail, a remote model tagged "remote",
-    /// else the raw id.
+    /// A choosable model's label: a catalog model's name with what it's for, its weight format, size
+    /// and context window (the same facts the Local tab's columns carry, so picking a main agent
+    /// doesn't mean switching tabs to compare); a remote model tagged "remote"; else the raw id.
     func modelLabel(_ id: String) -> String {
-        if let model = MlxModel.catalog.first(where: { $0.id == id }) { return "\(model.shortName)  \(model.detail)" }
+        if let model = MlxModel.catalog.first(where: { $0.id == id }) {
+            return [
+                model.displayName, model.capabilityLabel, model.quantizationLabel, model.sizeLabel,
+                ChatScreen.formatContext(model.contextWindowTokens) + " ctx"
+            ].filter { !$0.isEmpty }.joined(separator: "  ·  ")
+        }
         if remote.contains(where: { $0.name == id }) { return "\(id)  remote" }
         return id
     }
@@ -298,6 +304,8 @@ extension ChatScreen {
             toolsBrowser = nil
             modelHub?.select.remote = RippleModelConfig.loadModels(workingDirectory: modelsWorkingDirectory)
         case .local:
+            modelFilter = ""
+            localFamily = nil
             toolsBrowser = makeModelsBrowser()
             toolsScrollTop = true
         case .remote:
@@ -329,7 +337,15 @@ extension ChatScreen {
                 closeModelHub()
             }
         case .local:
-            closeModelHub()
+            // The Remote tab's ladder, step for step: the search first, then the drill-in, then the hub.
+            if !modelFilter.isEmpty {
+                modelFilter = ""
+                rebuildModelsBrowser(keeping: nil)
+            } else if localFamily != nil {
+                backToLocalFamilies()
+            } else {
+                closeModelHub()
+            }
         case .remote:
             if !openRouterFilter.isEmpty {
                 openRouterFilter = ""
@@ -351,6 +367,8 @@ extension ChatScreen {
         toolsBrowser = nil
         modelHub = nil
         modelEditingIdle = false
+        modelFilter = ""
+        localFamily = nil
         if let editor { applyModelSelect(editor) }
     }
 
@@ -465,7 +483,16 @@ extension ChatScreen {
     /// rows while open. The tab strip + key hints ride the panel border (see ``menuChrome``).
     func modelSelectLines(_ editor: ModelSelectEditor, width: Int) -> [Line] {
         if let pick = editor.picking { return modelPickLines(pick) }
-        var out: [Line] = []
+        var out: [Line] = infoBoxLines(
+            title: "select",
+            text: "Which models this project runs, and how long they stay in memory. The main agent "
+                + "plans and delegates; the vision model is a second model the vision subagent loads "
+                + "only when the agent looks at the screen, which is why it is off until you pick "
+                + "one. Both lists hold the models you have downloaded on the Local tab plus any "
+                + "remote ones registered on Remote. Choices are saved to this project's "
+                + "settings.json, so reopening ripple here starts on them.",
+            width: width
+        )
         for (index, row) in editor.rows.enumerated() {
             if row.id == ModelSelectEditor.mainIdleRowID {
                 out.append(Line(""))

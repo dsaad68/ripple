@@ -219,10 +219,29 @@ patterns, or if the inference is wrong for your deployment.
 
 ## The `/model` Remote tab
 
-Type `/model` inside an interactive session and switch to the **Remote** tab. It loads
-OpenRouter's free model catalog and lets you browse available models. Selecting one adds it to
-your `settings.json` `models` object with appropriate defaults. You can also remove registered
-remote models from this tab.
+Type `/model` inside an interactive session and switch to the **Remote** tab. It loads OpenRouter's
+free model catalog and lets you browse it, in the same two levels as the
+[Local tab](local.md#the-model-local-tab): providers first, then that provider's models when you
+press **enter**. Selecting a model adds it to your `settings.json` `models` object with appropriate
+defaults (enter again removes it), and it then appears in the **Select** tab beside the downloaded
+local ones.
+
+A model row carries the same facts in the same columns a local one does - **✓ registered / ○**, the
+context window, and what one response may generate - grouped under a heading per role, **Text** or
+**Text + Vision**. Where a local row prices itself in gigabytes, a remote one is simply `free`:
+nothing is downloaded, so it has no weight format or size.
+
+```text
+  Text  ·  4 ────────────────────────────────────────────────────────
+❯ Nemotron 3 Super  ○   free                  262k ctx  262k out
+    nvidia/nemotron-3-super:free
+
+  Text + Vision  ·  3 ───────────────────────────────────────────────
+  Nemotron Nano 12B 2 VL  ○   free            128k ctx  128k out
+```
+
+The context window and output budget are whatever the catalog advertises for the serving provider,
+so a model may list one and not the other.
 
 !!! tip
     The Remote tab requires a network connection to fetch the OpenRouter catalog. Your actual

@@ -18,6 +18,25 @@ struct PlanPanelTests {
         #expect(makeScreen().planPanelLines(width: 60).isEmpty)
     }
 
+    /// Every `/config` tab opens with a titled box saying what it governs. The box must stay aligned
+    /// at any width - a row wider than its border is the failure that makes a panel look broken.
+    @Test(arguments: [60, 80, 110])
+    func configTabExplanationIsABoxedParagraph(width: Int) {
+        let screen = makeScreen()
+        for tab in ConfigEditor.Tab.allCases {
+            let lines = screen.tabExplanationLines(tab, width: width)
+            #expect(lines.count >= 4) // top border, at least one text row, bottom border, a blank
+            #expect(lines[0].text.contains(tab.title.lowercased())) // the tab names its own box
+            #expect(lines.last?.text.isEmpty == true) // breathing room before the rows
+            // One box, or two where the tab also states a requirement - and every drawn row in them
+            // is the same width, which is what keeps the borders lined up.
+            let boxed = lines.filter { !$0.text.isEmpty } // the blanks between / after boxes
+            #expect(boxed.filter { $0.text.contains("╭─") }.count == (tab.requirement == nil ? 1 : 2))
+            let boxWidth = TextWidth.of(boxed[0].text)
+            for line in boxed { #expect(TextWidth.of(line.text) == boxWidth, "\(tab.title) at \(width)") }
+        }
+    }
+
     /// A three-item plan frames to one box - top border (title + `1/3` count), three todo rows, bottom
     /// border - every row the same width, the in-progress item visible.
     @Test(arguments: [44, 60, 80])
@@ -67,15 +86,13 @@ struct PlanPanelTests {
     @Test(arguments: [44, 60, 80])
     func openRouterFilterIsABorderedInputBox(width: Int) {
         let screen = makeScreen()
-        screen.openRouterFilter = "llama"
-        let typed = screen.filterFieldBox(width: width)
+        let typed = screen.filterFieldBox(width: width, text: "llama", placeholder: "type to filter…")
         #expect(typed.count == 3) // top border, field row, bottom border
         for line in typed { #expect(TextWidth.of(line.text) == width - 4) } // spans the panel's inner width
         #expect(typed[1].text.contains("llama"))
         #expect(typed[1].text.contains("▏")) // the cursor
 
-        screen.openRouterFilter = ""
-        let empty = screen.filterFieldBox(width: width)
+        let empty = screen.filterFieldBox(width: width, text: "", placeholder: "type to filter…")
         #expect(empty[1].text.contains("type to filter"))
         #expect(!empty[1].text.contains("▏")) // placeholder, no cursor
     }

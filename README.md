@@ -36,10 +36,27 @@ ripple --help              full usage and project links
 Just run `ripple` to start the interactive REPL - no subcommand needed (`ripple chat` is the
 explicit equivalent). Pipe text on stdin (`echo "..." | ripple`) for a one-shot run.
 
+**Lazy tools** *(experimental)*. Prefilling forty tool schemas on every query is most of a cold first response. In
+`/config` → **Lazy Tools** you mark each toolset (and each MCP server) *core* or *auxiliary*: core
+schemas stay in the prompt, auxiliary ones are found on demand with `search_tools` and then called
+normally, costing nothing until they are needed. Matching is lexical by default, or semantic via an
+on-device ColBERT encoder (`ripple model pull mlx-community/LFM2.5-ColBERT-350M-8bit`). See
+[Lazy tools](https://ripple.verybad.engineer/config/#lazy-tools).
+
+**Pick a model without leaving the chat.** `/model` → **Local** lists the on-device catalog by model
+family, split into `LLM` and `Embedding`; open one for its models under a `Text` / `Vision` /
+`Text + Vision` heading, each row showing its download state, weight format, size, context window
+and per-turn output budget in aligned columns. Type to filter, **enter** to download, **ctrl-x** to
+remove. The **Remote** tab browses OpenRouter's free catalog the same way, with the same columns. See
+[Local MLX models](https://ripple.verybad.engineer/models/local/).
+
 ## Requirements
 
 - macOS 26+ (Tahoe), Apple Silicon (arm64)
 - Xcode 26+ only if you build from source (the prebuilt `brew install dsaad68/tap/ripple` needs no Xcode)
+- [Apple's `container` tool](https://github.com/apple/container) only for the shell sandbox
+  (`/config` → Sandbox). It is not part of macOS; without it `failover` runs commands in the local
+  shell and `container-only` refuses to run them.
 
 ## Install
 

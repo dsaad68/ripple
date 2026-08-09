@@ -109,7 +109,7 @@ extension ChatScreen {
         let added = Set(RippleModelConfig.loadModels(workingDirectory: modelsWorkingDirectory).map(\.name))
         let groups: [ToolsBrowser.Group] = openRouterProvider == nil
             ? orderedOpenRouterProviders.map { provider in providerRow(provider, added: added) }
-            : currentProviderModels.map { model in modelRow(model, isAdded: added.contains(model.id)) }
+            : remoteModelGroups(added: added)
         var browser = ToolsBrowser(groups: groups)
         browser.title = "OpenRouter (free)"
         browser.isOpenRouter = true
@@ -139,13 +139,42 @@ extension ChatScreen {
         return ToolsBrowser.Group(title: provider.label, tools: [], trailing: trailing)
     }
 
-    /// A level-2 model row: the readable short name on the left; ✓ added / ○, the context window, and
-    /// a vision marker on the right - one line, no second subtitle line.
-    private func modelRow(_ model: OpenRouterModel, isAdded: Bool) -> ToolsBrowser.Group {
-        var trailing = isAdded ? Paint.fg(114, "✓ added") : Paint.fg(240, "○")
-        if let context = model.contextLength { trailing += Paint.fg(240, "   " + Self.formatContext(context)) }
-        if model.vision { trailing += Paint.fg(244, "   vision") }
-        return ToolsBrowser.Group(title: model.shortName, tools: [], trailing: trailing, downloaded: isAdded)
+    /// Level 2: the drilled-into provider's models, grouped by what they are for and laid out in the
+    /// Local tab's columns - the same facts in the same places, so comparing a free remote model with
+    /// one you could download is reading across, not translating.
+    private func remoteModelGroups(added: Set<String>) -> [ToolsBrowser.Group] {
+        let models = currentProviderModels
+        var roles: [String] = []
+        for model in models where !roles.contains(model.roleLabel) { roles.append(model.roleLabel) }
+        return roles.flatMap { role -> [ToolsBrowser.Group] in
+            let inRole = models.filter { $0.roleLabel == role }
+            return inRole.enumerated().map { index, model in
+                ToolsBrowser.Group(
+                    title: model.shortName, subtitle: model.id, tools: [],
+                    trailing: Self.remoteModelColumns(model, isAdded: added.contains(model.id)),
+                    downloaded: added.contains(model.id),
+                    section: index == 0 ? (title: role, tag: "\(inRole.count)") : nil,
+                    subtitleOnSelection: true
+                )
+            }
+        }
+    }
+
+    /// A remote model's right-hand columns, in the Local tab's shape and cell widths, so the two tabs
+    /// read across rather than needing translation: the ✓/○ registered marker where the on-disk marker
+    /// goes, then the context window and what one response may generate. Where a local row prices
+    /// itself in gigabytes a remote one is simply "free" - nothing is fetched, so there is no weight
+    /// format or download size to report, and that cell stays empty rather than being filled with
+    /// something invented.
+    static func remoteModelColumns(_ model: OpenRouterModel, isAdded: Bool) -> String {
+        let marker = isAdded ? Paint.fg(Theme.success.xterm, "✓") : Paint.fg(Theme.faint.xterm, "○")
+        let context = model.contextLength.map { formatContext($0) + " ctx" } ?? ""
+        let output = model.maxCompletionTokens.map { formatContext($0) + " out" } ?? ""
+        return marker + "   "
+            + Paint.fg(Theme.subtle.xterm, ChatScreen.column("free", to: 12))
+            + ChatScreen.column("", to: 8)
+            + Paint.fg(Theme.faint.xterm, ChatScreen.column(context, to: 10, alignRight: true))
+            + Paint.fg(Theme.faint.xterm, ChatScreen.column(output, to: 9, alignRight: true))
     }
 
     /// Enter on a level-1 provider row: drill into that provider's model list.
@@ -216,7 +245,7 @@ extension ChatScreen {
     }
 
     /// A compact context-window label: `131072` -> "131k", `1048576` -> "1M".
-    static func formatContext(_ tokens: Int) -> String {
+    nonisolated static func formatContext(_ tokens: Int) -> String {
         if tokens >= 1_000_000 { return "\(tokens / 1_000_000)M" }
         if tokens >= 1000 { return "\(tokens / 1000)k" }
         return "\(tokens)"

@@ -139,7 +139,9 @@ extension ChatScreen {
             // stays on disk, resumable with `ripple --resume`.
             sessionContext.id = UUID().uuidString
             messages.removeAll(); invalidateTranscriptCache()
-            contextChars = 0; scrollOffset = 0; clearPlan(); clearInput(); rebuildAgent(); return
+            // The new thread is empty but still pays for the prompt, so re-measure rather than zero it.
+            contextChars = 0; sessionTokens = 0; refreshContextMeter()
+            scrollOffset = 0; clearPlan(); clearInput(); rebuildAgent(); return
         case "/clear": messages.removeAll(); invalidateTranscriptCache(); scrollOffset = 0; clearPlan(); clearInput(); return
         default: break
         }
@@ -162,6 +164,24 @@ extension ChatScreen {
 
     /// Drop the pinned plan (a new task, or a cleared / fresh conversation, starts without one).
     func clearPlan() { plan.removeAll(); planCollapsed = false }
+
+    /// Re-measure the context meter against the agent, off the main loop: what the *next* request will
+    /// cost, thread plus the fixed prompt overhead. Run whenever that can have moved by more than the
+    /// tokens we watched stream - a finished turn (whose tool results never streamed), a compaction, a
+    /// rebuilt agent (a different tool set is a different overhead), a new session.
+    func refreshContextMeter() {
+        let agent = agent
+        let threadId = threadId
+        let generation = agentGeneration
+        Task { @MainActor in
+            let measured = await agent.contextTokens(threadId: threadId)
+            // A rebuild / `/fresh` mid-flight retargets the meter; don't clobber the newer agent's.
+            guard agentGeneration == generation, self.threadId == threadId else { return }
+            sessionTokens = measured
+            contextChars = measured * 4 // keep the char proxy roughly in step with the meter
+            requestRender()
+        }
+    }
 
     // MARK: - Compaction
 
@@ -319,7 +339,9 @@ extension ChatScreen {
             variant = choice
             plannerName = Self.name(choice.textModelID)
             // Keep the same session across a `/model` switch - the history carries over (the new
-            // agent's store is keyed by the unchanged session id).
+            // agent's store is keyed by the unchanged session id). The window it is measured against
+            // is the new model's, so re-measure the meter too.
+            refreshContextMeter()
             // Remember this as the project's default planner, so reopening ripple here starts on it.
             if let workingDirectory {
                 try? RippleAgentConfig.saveSelectedModel(choice.textModelID, workingDirectory: workingDirectory)
@@ -364,6 +386,9 @@ extension ChatScreen {
         currentTurn = nil
         liveAssistant = nil
         spinnerTask?.cancel()
+        // The per-token nudges above missed everything that didn't stream as an assistant token -
+        // above all the tool results - so settle the meter on what the thread actually holds now.
+        refreshContextMeter()
         requestRender()
         MLX.Memory.clearCache()
     }

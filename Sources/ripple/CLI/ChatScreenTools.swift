@@ -12,18 +12,38 @@ extension ChatScreen {
     /// the human-in-the-loop policy, so the browser shows exactly which calls ask for approval.
     func makeToolsBrowser() -> ToolsBrowser {
         let gated = agent.middleware.compactMap { $0 as? HumanInTheLoopMiddleware }.first?.interruptOn ?? [:]
+        let auxiliary = auxiliaryToolNames()
 
         var groups: [ToolsBrowser.Group] = []
         if !agent.tools.isEmpty {
-            groups.append(ToolsBrowser.Group(title: "Agent tools", tools: agent.tools.map { toolInfo($0, gated: gated) }))
+            groups.append(ToolsBrowser.Group(
+                title: "Agent tools",
+                tools: agent.tools.map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
+            ))
         }
         for middleware in agent.middleware where !middleware.tools.isEmpty {
+            let tools = middleware.tools.map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
             groups.append(ToolsBrowser.Group(
                 title: Self.toolsetTitle(middleware.name),
-                tools: middleware.tools.map { toolInfo($0, gated: gated) }
+                subtitle: Self.tierSubtitle(tools),
+                tools: tools
             ))
         }
         return ToolsBrowser(groups: groups)
+    }
+
+    /// The tools the agent can dispatch but does **not** render into the prompt - read off the live
+    /// agent rather than re-derived from the policy, so this browser reports what is actually happening
+    /// (a toolset tiered auxiliary but disabled contributes nothing, and shows as nothing).
+    func auxiliaryToolNames() -> Set<String> {
+        Set(agent.tools.map(\.name)).subtracting(agent.renderedTools.map(\.name))
+    }
+
+    /// A toolset's tier line, when every tool in it shares one tier. Mixed groups get no line - the
+    /// per-tool tags carry it instead.
+    nonisolated static func tierSubtitle(_ tools: [ToolsBrowser.ToolInfo]) -> String? {
+        guard !tools.isEmpty, tools.allSatisfy(\.auxiliary) else { return nil }
+        return "auxiliary - not in the prompt; the agent finds these with search_tools"
     }
 
     /// Build the `/mcp` overview: one group per configured MCP server, subtitled with its
@@ -35,11 +55,18 @@ extension ChatScreen {
         let mcpTools = agent.middleware.first { $0.name == "mcp" }?.tools ?? []
 
         let statusByName = Dictionary(mcpStatuses.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let auxiliary = auxiliaryToolNames()
         let groups: [ToolsBrowser.Group] = mcpServers.map { server in
-            let tools = toolsFromServer(server.name, in: mcpTools).map { toolInfo($0, gated: gated) }
+            let tools = toolsFromServer(server.name, in: mcpTools)
+                .map { toolInfo($0, gated: gated, auxiliary: auxiliary) }
             var bits = [server.kind == .http ? "HTTP" : "stdio"]
             if server.kind == .http { bits.append(server.auth == .oauth ? "OAuth" : "Headers") }
             bits.append("approval: \(server.approvalMode.label)")
+            // The tier, when lazy tools are on - otherwise every server reads the same and a
+            // configured tier looks like it was never applied. Edited on /config's Lazy Tools tab.
+            if policy.toolSearch, !tools.isEmpty {
+                bits.append("tier: \(tools.allSatisfy(\.auxiliary) ? "auxiliary" : "core")")
+            }
             // Surface this server's live state: signing in, an OAuth server that needs (or has) a
             // sign-in, or a failure - so it doesn't read as a healthy server with no tools. The
             // not-authenticated nudge is yellow (the renderer dims the rest).
@@ -124,7 +151,9 @@ extension ChatScreen {
 
     /// Project a tool into the browser's display model: name, whether it's gated (needs approval),
     /// description, and its parameters with type/role labels.
-    private func toolInfo(_ tool: any AgentTool, gated: [String: InterruptOnConfig]) -> ToolsBrowser.ToolInfo {
+    private func toolInfo(
+        _ tool: any AgentTool, gated: [String: InterruptOnConfig], auxiliary: Set<String> = []
+    ) -> ToolsBrowser.ToolInfo {
         ToolsBrowser.ToolInfo(
             name: tool.name,
             gated: gated[tool.name] != nil,
@@ -139,7 +168,8 @@ extension ChatScreen {
                 return ToolsBrowser.Param(
                     label: "\(param.name) (\(role), \(Self.typeLabel(param.type)))", detail: detail
                 )
-            }
+            },
+            auxiliary: auxiliary.contains(tool.name)
         )
     }
 
@@ -378,21 +408,21 @@ extension ChatScreen {
         return out
     }
 
-    /// A bordered filter input for the OpenRouter pane, matching the main input box: a rounded box
+    /// A bordered filter input for the Local / Remote panes, matching the main input box: a rounded box
     /// spanning the panel's inner width with the `❯` prompt, the live query (its tail when long) or a
     /// placeholder, and a thin cursor (the menu hides the terminal's own). Returned as three body rows.
-    func filterFieldBox(width: Int) -> [Line] {
+    func filterFieldBox(width: Int, text: String, placeholder: String) -> [Line] {
         let fw = max(8, width - 4) // the box spans the panel's inner content width
         let edge = Theme.border.xterm
         let textArea = max(1, fw - 6) // inside "│ ❯ " (4) … " │" (2)
-        let plain = openRouterFilter.isEmpty
-            ? "type to filter…"
-            : String(openRouterFilter.suffix(textArea - 1)) // tail, leaving a column for the cursor
+        let plain = text.isEmpty
+            ? placeholder
+            : String(text.suffix(textArea - 1)) // tail, leaving a column for the cursor
         let shown = String(plain.prefix(textArea))
-        let styled = openRouterFilter.isEmpty
+        let styled = text.isEmpty
             ? Paint.fg(240, shown)
             : Paint.fg(252, shown) + Paint.fg(Theme.accent.xterm, "▏")
-        let used = TextWidth.of(shown) + (openRouterFilter.isEmpty ? 0 : 1)
+        let used = TextWidth.of(shown) + (text.isEmpty ? 0 : 1)
         let pad = String(repeating: " ", count: max(0, textArea - used))
         let rule = String(repeating: "─", count: fw - 2)
         return [
@@ -414,14 +444,21 @@ extension ChatScreen {
             ? modelHubTabStrip(modelHub!.tab)
             : panelTitle(browser.title)
 
-        var innerHeader: [Line] = []
+        // What this pane is for, in the same ⓘ box the `/config` tabs carry.
+        var innerHeader: [Line] = browserInfoLines(browser, width: width)
         if browser.isOpenRouter {
             // A real bordered filter input (matching the main input box) so the user sees what they
             // typed; the provider / count context sits dim below it.
             let shown = browser.groups.count
-            innerHeader += filterFieldBox(width: width)
+            innerHeader += filterFieldBox(width: width, text: openRouterFilter, placeholder: "type to filter…")
             let context = openRouterProvider.map { "› \($0)  ·  \(shown) models" } ?? "\(shown) providers"
             innerHeader.append(Line(Paint.fg(240, context)))
+        }
+        if browser.isModels {
+            // The same bordered search input the Remote tab carries, over an inventory line: how much
+            // of the catalog is showing, and what the downloaded models cost on disk.
+            innerHeader += filterFieldBox(width: width, text: modelFilter, placeholder: "type to filter…")
+            innerHeader.append(Line(Paint.fg(240, localModelsSummary(shown: browser.groups.count))))
         }
         // The overlay block that normally carries the download bar is hidden while a menu is open, so
         // the Local tab draws the live bar itself - without it, an enter-triggered pull is invisible
@@ -436,9 +473,15 @@ extension ChatScreen {
         } else if browser.isOpenRouter {
             footerText = "←→ tabs · ↑↓ select · type to filter · enter open · esc close"
         } else if browser.isModels {
-            footerText = downloading == nil
-                ? "←→ tabs · ↑↓ select · enter download · x remove · esc close"
-                : "←→ tabs · ↑↓ select · esc cancel download"
+            if downloading != nil {
+                footerText = "←→ tabs · ↑↓ select · esc cancel download"
+            } else if localFamily != nil {
+                footerText = "↑↓ select · type to filter · enter download · ctrl-x remove · esc "
+                    + (modelFilter.isEmpty ? "back" : "clear")
+            } else {
+                footerText = "←→ tabs · ↑↓ select · type to filter · enter open · esc "
+                    + (modelFilter.isEmpty ? "close" : "clear")
+            }
         } else if browser.isMCP {
             // Only advertise r/x when the highlighted row is a server that can actually sign in (and
             // we're in the list, not an opened group's tool detail) - `handleMCPBrowserKey` ignores r/x
@@ -455,23 +498,24 @@ extension ChatScreen {
             return (chrome, innerHeader, [[Line(Paint.fg(244, browser.emptyMessage))]])
         }
         let labelWidth = browser.groups.map { TextWidth.of($0.title) }.max() ?? 0
-        // The Local row being pulled right now (its rows are in catalog order): its ✓/○ becomes a
-        // live percentage so the enter press has row-level feedback.
+        // The Local row being pulled right now: its ✓/○ becomes a live percentage so the enter press
+        // has row-level feedback. Indexed against the rows on screen, which a search has narrowed.
         let pullingIndex: Int? = browser.isModels
-            ? downloading.flatMap { pull in MlxModel.catalog.firstIndex { $0.id == pull.modelID } }
+            ? downloading.flatMap { pull in localModelRows.firstIndex { $0.id == pull.modelID } }
             : nil
         let groups: [[Line]] = browser.groups.enumerated().map { index, group in
             let selected = index == browser.groupIndex
             let marker = selected ? Paint.arrow("❯") : " "
             let pad = String(repeating: " ", count: max(2, labelWidth + 2 - TextWidth.of(group.title)))
             let count = group.tools.count == 1 ? "1 tool" : "\(group.tools.count) tools"
-            var right = group.trailing ?? Paint.fg(240, count) // models show size + ✓/○ instead of a count
+            var right = group.trailing ?? Paint.fg(240, count) // models show their columns instead of a count
             if index == pullingIndex, let pull = downloading {
                 right = Paint.fg(141, "◇ " + String(format: "%d%%", Int((pull.fraction * 100).rounded())))
             }
             let row = "\(marker) " + Paint.fg(selected ? 252 : 245, group.title) + pad + right
-            var block: [Line] = [Line(row, .openToolGroup(index), highlight: selected)]
-            if let subtitle = group.subtitle {
+            var block: [Line] = group.section.map { sectionHeaderLines($0, first: index == 0, width: width) } ?? []
+            block.append(Line(row, .openToolGroup(index), highlight: selected))
+            if let subtitle = group.subtitle, selected || !group.subtitleOnSelection {
                 // Band the subtitle too (the whole entry highlights), brightening it on the band so it
                 // stays legible - the dim border grey would vanish on the selection background.
                 let subColor = selected ? Theme.dim.xterm : Theme.border.xterm
@@ -480,6 +524,83 @@ extension ChatScreen {
             return block
         }
         return (chrome, innerHeader, groups)
+    }
+
+    /// The ⓘ box each browser pane opens with - what this list *is*, and what acting on a row does.
+    /// The Local and Remote tabs say it differently at each level, because drilling in changes what
+    /// enter means (open a provider, then pull or register a model).
+    private func browserInfoLines(_ browser: ToolsBrowser, width: Int) -> [Line] {
+        let title: String
+        let text: String
+        if browser.isModels {
+            title = "local models"
+            text = localFamily == nil
+                ? "On-device MLX models by family, split into the LLM ones you chat with and the "
+                + "embedding encoders that back search_tools - an encoder has no LM head, so choosing "
+                + "one as a planner would only fail at load. A family is the model line; the "
+                + "precision and the text-or-vision variant are what you pick inside it. Open one to "
+                + "download; nothing is fetched until you ask for it."
+                : "This family's models, grouped by what they are for. Each row shows whether it is "
+                + "on disk, its weight format, and the three numbers that decide whether it fits: "
+                + "download size, context window, and the tokens one turn may generate. Downloads "
+                + "run here in the chat and resume if you cancel them."
+        } else if browser.isOpenRouter {
+            title = "remote models"
+            text = openRouterProvider == nil
+                ? "Free models from OpenRouter's public catalog, by provider. Adding one writes an "
+                + "entry to ~/.ripple/settings.json pointing at OpenRouter's OpenAI-compatible "
+                + "endpoint - nothing runs on this machine, and the request leaves it. Using one "
+                + "needs OPENROUTER_API_KEY; listing them does not."
+                : "This provider's free models, grouped by what they are for. Enter adds a model to "
+                + "your registry (or removes it again); it then appears in the Select tab beside "
+                + "the downloaded local ones. The context window and output budget are whatever "
+                + "the catalog advertises for the serving provider."
+        } else if browser.isMCP {
+            title = "mcp servers"
+            text = "External tool servers from mcp.json / .mcp.json, and the tools each one "
+                + "contributes to the agent. A server's tools are ordinary tools once connected - they "
+                + "go through the same approval gate as everything else. Servers that need a browser "
+                + "sign-in say so here, and r starts it."
+        } else {
+            title = "tools"
+            text = "Every tool this agent has right now, by the middleware that contributes it - the "
+                + "live stack, so it reflects the capabilities you have switched on and any MCP "
+                + "servers that connected. Open a toolset to read each tool's description and "
+                + "parameters, which is what the model itself is given. A hollow marker means the tool "
+                + "is auxiliary: reachable through search_tools, deliberately not in the prompt."
+        }
+        return infoBoxLines(title: title, text: text, width: width)
+    }
+
+    /// A section heading above the first row of a family in the Local tab: the family name, its dim
+    /// role tag ("language" / "vision" / "embedding"), and a rule running out to the panel edge. Every
+    /// heading but the first is preceded by a blank line, so the families read as separate blocks.
+    private func sectionHeaderLines(_ section: (title: String, tag: String), first: Bool, width: Int) -> [Line] {
+        // "  " + title + "  ·  " + tag + " " + rule, filling the panel's inner width (width - 4). The
+        // title starts under the rows' names, so a section reads as a heading over its own column.
+        let used = 2 + TextWidth.of(section.title) + 5 + TextWidth.of(section.tag) + 1
+        let header = "  " + Paint.fg(Theme.agent.xterm, section.title)
+            + Paint.fg(Theme.border.xterm, "  ·  ") + Paint.fg(Theme.faint.xterm, section.tag)
+            + " " + Paint.fg(Theme.border.xterm, String(repeating: "─", count: max(2, width - 4 - used)))
+        return first ? [Line(header)] : [Line(""), Line(header)]
+    }
+
+    /// The Local tab's context line, mirroring the Remote tab's: what level you are on and how much is
+    /// showing, then the catalog-wide count of what is downloaded and roughly what it occupies - a
+    /// whole-disk figure a search must not appear to shrink.
+    private func localModelsSummary(shown: Int) -> String {
+        let downloaded = MlxModel.catalog.filter { ModelCache.isDownloaded($0.id) }
+        let onDisk = downloaded.reduce(0.0) { $0 + $1.approxGB }
+        let scope: String
+        if let drill = localFamily {
+            let family = drill.split(separator: "/").dropFirst().joined(separator: "/")
+            scope = "› \(family)  ·  \(shown) model" + (shown == 1 ? "" : "s")
+        } else {
+            scope = "\(shown) famil" + (shown == 1 ? "y" : "ies")
+                + (modelFilter.isEmpty ? "" : " matching \"\(modelFilter)\"")
+        }
+        return "\(scope)  ·  \(downloaded.count) of \(MlxModel.catalog.count) downloaded"
+            + "  ·  ~\(ChatScreen.diskLabel(onDisk)) on disk"
     }
 
     /// The highest first-group index that still fills `bodyHeight` (so scrolling never strands the
@@ -512,7 +633,11 @@ extension ChatScreen {
         out.append(Line(""))
         let textWidth = max(20, width - 12) // leave room for the box border + the in-row indent
         for tool in group.tools {
-            var head = "  " + Paint.fg(114, "●") + " " + Paint.fg(252, tool.name)
+            // A hollow marker for an auxiliary tool, matching the ✓/○ present/absent idiom the model
+            // rows use - it is dispatchable, just not in the prompt.
+            var head = "  " + Paint.fg(auxiliaryMarkerColor(tool), tool.auxiliary ? "○" : "●")
+                + " " + Paint.fg(252, tool.name)
+            if tool.auxiliary { head += "  " + Paint.fg(245, "[auxiliary]") }
             if tool.gated { head += "  " + Paint.fg(Theme.warn.xterm, "[needs approval]") }
             out.append(Line(head))
             for line in Self.wrapPlain(tool.description, width: textWidth) {
@@ -528,6 +653,11 @@ extension ChatScreen {
             out.append(Line(""))
         }
         return out
+    }
+
+    /// Green for a tool the model can see, dim for one it has to search for.
+    private func auxiliaryMarkerColor(_ tool: ToolsBrowser.ToolInfo) -> Int {
+        tool.auxiliary ? 240 : 114
     }
 
     /// Color a param's "name (role, type)" label: the name brighter than its dim parenthetical type,

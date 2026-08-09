@@ -12,7 +12,7 @@ let package = Package(
         .executable(name: "ripple", targets: ["ripple"])
     ],
     dependencies: [
-        .package(url: "https://github.com/dsaad68/deepagents-swift.git", from: "0.6.0"),
+        .package(url: "https://github.com/dsaad68/deepagents-swift.git", from: "0.7.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0")
     ],
     targets: [

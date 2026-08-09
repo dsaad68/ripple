@@ -204,9 +204,13 @@ extension ChatScreen {
 
     // MARK: - Shared helpers
 
+    /// How a model is named in the chrome that shows one on its own - the banner, the status line,
+    /// and the model-switch notes: family then the row within it, "LFM2.5 · 1.2B Instruct". A bare
+    /// "1.2B Instruct" doesn't say *which* 1.2B once several families are downloaded. A remote or
+    /// custom model has no catalog row, so it keeps its own name.
     static func name(_ id: String) -> String {
         if id.isEmpty { return "none" } // a text-only variant has no vision model
-        return MlxModel.catalog.first { $0.id == id }?.shortName ?? id
+        return MlxModel.catalog.first { $0.id == id }?.qualifiedName ?? id
     }
 
     func abbreviatedCWD() -> String {

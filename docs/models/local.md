@@ -87,8 +87,9 @@ ripple model list
 ripple model ls          # alias
 ```
 
-Prints every model currently in the Hugging Face cache that Ripple recognizes, along with its
-disk footprint.
+Prints the built-in catalog grouped by family (chat models first, retrieval encoders last), marking
+each row **✓ downloaded / ○ not yet** and listing what it is for, its weight format, disk footprint,
+context window, and per-turn output budget - the same facts the `/model` Local tab tabulates.
 
 ### Download models
 
@@ -144,12 +145,58 @@ repo directory entirely.
 
 ## The `/model` Local tab
 
-Inside an interactive session, type `/model` and switch to the **Local** tab. It shows the
-Hugging Face catalog of supported MLX models with their size and download status. Press **enter**
-to download the highlighted model and **x** to remove it - both without leaving the chat. A live
-progress bar is drawn at the top of the tab (and the row being fetched shows its percentage);
-**esc** cancels the download, and partial files resume on the next pull. Once complete the model
-becomes immediately selectable in the **Select** tab.
+Inside an interactive session, type `/model` and switch to the **Local** tab. It has the same two
+levels as the Remote tab - a list you drill into with **enter** and back out of with **esc**.
+
+**Level 1 is the model families**, split into **LLM** (the models you chat with, vision ones
+included) and **Embedding** (the retrieval encoders behind `search_tools`). The split is not
+cosmetic: an encoder has no LM head, so picking one as a planner would only fail at load.
+
+```text
+  LLM  ·  chat and vision models ───────────────────────────────────
+❯ LFM2.5          ✓  12 of  13 models   ~30.5 GB
+  Ornith          ✓   2 of   2 models   ~14.8 GB
+  Qwen3.6         ✓   1 of   2 models   ~20.0 GB
+  Gemma 4         ✓   2 of   2 models   ~16.5 GB
+
+  Embedding  ·  retrieval encoders for search_tools ────────────────
+  LFM2.5-ColBERT  ✓   1 of   2 models    ~410 MB
+```
+
+**Level 2 is that family's models**, under a heading per role - **Text**, **Vision**,
+**Text + Vision** for a unified VLM like Ornith that plans *and* sees images, or **Embedding**. A
+family's vision conversions live here rather than in a family of their own: LFM2.5-VL is the same
+model line, and the role heading is what tells them apart.
+
+```text
+› LFM2.5  ·  13 models  ·  18 of 21 downloaded  ·  ~82.2 GB on disk
+
+  Text  ·  10 ──────────────────────────────────────────────────────
+❯ LFM2.5 1.2B Instruct  ✓   8-bit         1.3 GB   32k ctx   4k out
+    Instruct  ·  LiquidAI/LFM2.5-1.2B-Instruct-MLX-8bit
+  LFM2.5 2.6B           ○   MXFP8         2.8 GB  131k ctx   8k out
+
+  Vision  ·  3 ─────────────────────────────────────────────────────
+  LFM2.5-VL 450M        ✓   8-bit         614 MB   32k ctx   4k out
+```
+
+Each row carries, in order: the model's name, **✓ on disk / ○ not yet**, the weight format, the
+download size, the model's context window, and the tokens it may generate in one turn (reasoning
+included). The full Hugging Face id - plus what the model is for and whether the default preset uses
+it - sits under whichever row is highlighted.
+
+On a model row, press **enter** to download it and **ctrl-x** to remove it - both without leaving the
+chat. A live progress bar is drawn at the top of the tab (and the row being fetched shows its
+percentage); **esc** cancels the download, and partial files resume on the next pull. Once complete
+the model becomes immediately selectable in the **Select** tab.
+
+**Type to filter**, exactly as on the Remote tab: the query matches a model's name, family, id,
+weight format, and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all narrow the
+list - at both levels, since the family list is derived from the models that matched. The
+highlighted row stays highlighted as you refine the query, and a search that empties the open family
+backs out to the family list rather than showing you nothing. Backspace edits the query, ctrl-u
+clears it, and **esc** clears it, then leaves the family, then closes the overlay. Because printable
+keys are spoken for by the search, removing a model is **ctrl-x** rather than `x`.
 
 ---
 

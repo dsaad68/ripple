@@ -51,7 +51,13 @@ repo).
       "shell": "ask"
     },
     "sandbox": "failover",
-    "sandboxImage": "ghcr.io/astral-sh/uv:python3.13-alpine3.23"
+    "sandboxImage": "ghcr.io/astral-sh/uv:python3.13-alpine3.23",
+    "toolSearch": true,
+    "auxiliaryMiddleware": ["git", "text"],
+    "auxiliaryTools": ["curl"],
+    "coreMCPServers": ["deepwiki"],
+    "toolSearchModel": "mlx-community/LFM2.5-ColBERT-350M-8bit",
+    "toolSearchLimit": 5
   }
 }
 ```
@@ -86,6 +92,12 @@ Controls which tools and middleware are active and how tool calls are gated.
 | `approvals` | object | Per-tool approval mode: `"ask"`, `"approve"`, or `"deny"` |
 | `sandbox` | string | Shell sandbox mode: `"off"`, `"failover"`, or `"container-only"` |
 | `sandboxImage` | string | OCI image for the sandbox container |
+| `toolSearch` | bool | Turn lazy tool loading on (default `false`) - see [Lazy tools](#lazy-tools) |
+| `auxiliaryMiddleware` | array of strings | Capability middleware ids whose tools are auxiliary |
+| `auxiliaryTools` | array of strings | Individual tool names to make auxiliary |
+| `coreMCPServers` | array of strings | MCP servers to keep **core**; every other server is auxiliary |
+| `toolSearchModel` | string | Retrieval model repo id; omit for the lexical retriever |
+| `toolSearchLimit` | int | How many tools one `search_tools` call returns (default `5`) |
 
 **Approval modes:**
 
@@ -100,6 +112,13 @@ Controls which tools and middleware are active and how tool calls are gated.
   unavailable.
 - `"container-only"` - run in an Apple Container; refuse if the container is unavailable.
 
+!!! warning "Needs Apple Containers"
+    The sandbox runs on [Apple's `container` tool](https://github.com/apple/container), which is not
+    part of macOS: install it and run `container system start`. Without it there is nothing to
+    sandbox into - `failover` falls back to the local shell (so commands still run, just
+    unsandboxed) and `container-only` refuses to run them at all. The `/config` **Sandbox** tab says
+    so in amber, next to the switch.
+
 See [Sandbox & shell](../sandbox.md) for the full sandbox documentation.
 
 The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Override it with
@@ -107,11 +126,102 @@ The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Overr
 
 ---
 
+## Lazy tools
+
+!!! warning "Experimental"
+    A tool the model cannot see is a tool it may not think to look for, so a tiering that suits one
+    project can quietly change how the agent behaves in another. It is off by default, and the
+    `/config` tab flags it in amber. Turn it off if answers get worse.
+
+    **It wants a capable planner.** On the smallest on-device models the feature can make the agent
+    worse than leaving it off: they search less reliably, and one was observed answering *from a
+    tool's description instead of calling it* - inventing a note title, a note id and a note body it
+    had never read. Ripple now tells the model, immediately after every search, that what it received
+    are definitions rather than results and that nothing has run yet. That makes the failure loud
+    rather than silent; it does not make a 1.2B model competent. Prefer a mid-size planner or better,
+    and treat a confident answer that no tool call precedes as suspect.
+
+By default every enabled tool's JSON schema is written into the model's prompt on every query. With
+around forty tools that is a large fixed cost paid before the model produces its first token, and
+most queries use a handful of them.
+
+Turn `toolSearch` on and tools split into two tiers:
+
+- **Core** tools are in the prompt from the first token. Always callable, and paid for on every
+  query.
+- **Auxiliary** tools are not in the prompt at all. The agent calls `search_tools` with a
+  description of what it needs ("read a file", "check git history"), gets back the matching names and
+  signatures, and then calls the tool normally. They cost nothing until they are needed, at the price
+  of one extra round the first time.
+
+Auxiliary tools are still gated by their approval mode - the tier decides what is prefilled, not
+what is permitted, so you will still see approval cards for tools you did not mark core.
+
+### Start with the filesystem
+
+`filesystem` is the toolset worth moving first, and not only for its size. A small planner picks its
+tool by surface-matching the request against the schema in front of it, so "**list** my apple notes"
+reaches for `ls` and "**read** my clipboard" reaches for `read_file` - both sitting right there in the
+prompt, both wrong. Taking them out of the prompt removes the wrong answer rather than arguing with
+it: measured on a 2.6B planner, the rate at which it called `search_tools` for an Apple Notes request
+went from 3/8 to 4/5 on that change alone, after three rewrites of the prompt had barely moved it.
+
+Whatever stays core becomes the next attractor, so expect the same effect at smaller scale from `text`
+(`head`, `tail`) and `search` (`grep`, `glob`).
+
+Two tools are always present when the feature is on: `search_tools`, and `run_tool` for a planner
+that will not call a tool absent from its own schema.
+
+### Retrievers
+
+`toolSearchModel` picks how `search_tools` ranks tools:
+
+| Value | Behaviour |
+|---|---|
+| omitted | Lexical - IDF-weighted term overlap. No model, no download. |
+| `mlx-community/LFM2.5-ColBERT-350M-8bit` | ColBERT late interaction, ~350 MB resident. The default choice in `/config`. |
+| `mlx-community/LFM2.5-ColBERT-350M-bf16` | The same model at full precision, ~700 MB resident. |
+
+The ColBERT retrievers score every query token against every tool token (MaxSim), which reads intent
+considerably better than term overlap. They download on first use like any other model.
+
+### Why moving a tier re-prefills once
+
+The rendered tool set is part of Ripple's reusable prompt prefix, so changing which tools are core
+invalidates the saved prefix once - the next query after an edit is a cold one, then it is warm
+again. Discovering a tool through `search_tools` does *not* do this: the schemas arrive as a tool
+result, which appends to the conversation instead of changing the prompt's prefix. See
+[Compaction & the prefix cache](compaction.md).
+
+---
+
 ## The `/config` editor
 
-Type `/config` in an interactive session to open the configuration overlay. It lets you toggle
-middleware, change the sandbox mode, set logging, and review tool policy without editing the JSON
-file by hand. Changes made in `/config` are written back to the project `settings.json`.
+Type `/config` in an interactive session to open the configuration overlay. Its tabs are switched
+with ←/→ and space acts on the highlighted row:
+
+- **Capabilities** - toggle capability middleware on/off, and the developer message log.
+- **Lazy Tools** - turn lazy tools on, pick the retriever and how many matches a search returns, and
+  move each toolset and MCP server between core and auxiliary.
+- **Sandbox** - the container sandbox mode and its image.
+- **Context** - how full the context may get before older turns are summarized.
+- **Cache** - the prefill cache switch, its limits, and what it is holding per model.
+
+Every tab opens with a blue ⓘ box saying what that tab governs and naming the trade-off you are
+making there - what a capability costs in prompt tokens, why a container is slower, why the
+compaction threshold rather than the window is what keeps a session inside your memory. Each row
+still explains itself underneath when you highlight it; the box is about the tab as a whole.
+
+```text
+╭─ ⓘ lazy tools ──────────────────────────────────────────────────────────────╮
+│ Core tools are in the model's prompt from the first token - always callable, │
+│ and paid for on every single query. Auxiliary tools are not in the prompt at │
+│ all: the agent finds them with search_tools and then calls them normally…    │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+Changes made in `/config` are written back to the project `settings.json`. The MCP tier is stored
+there too rather than in `mcp.json`, which may be a shared `.mcp.json` that other tools read.
 
 ---
 

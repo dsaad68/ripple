@@ -7,8 +7,9 @@ fallback is permitted.
 
 !!! info "Built on Apple Container"
     The sandbox is powered by [Apple's `container`](https://github.com/apple/container), an
-    open-source tool for running Linux containers on Mac (Apple Silicon, macOS 26+). Install it
-    before using `failover` or `container-only` mode.
+    open-source tool for running Linux containers on Mac (Apple Silicon, macOS 26+). Install it and
+    run `container system start` before using `failover` or `container-only` mode. The `/config`
+    **Sandbox** tab states the requirement in amber, so the switch never reads as self-contained.
 
 ---
 

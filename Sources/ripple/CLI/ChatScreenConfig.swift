@@ -42,6 +42,8 @@ extension ChatScreen {
             contextWindowTokens: agent.contextWindowTokens
         )
         editor.inventory = PrefixKVStore.inventory()
+        // The Lazy Tools tab tiers MCP per server, so it needs the configured servers by name.
+        editor.mcpServers = mcpServers
         return editor
     }
 
@@ -176,6 +178,8 @@ extension ChatScreen {
         if let newAgent = await build(variant, policy) {
             agent = newAgent
             // Keep the same session across a `/config` rebuild - only the capability set changes.
+            // A different tool set is a different prompt overhead, so the meter is re-measured.
+            refreshContextMeter()
         }
         loading = false
         requestRender()
@@ -186,6 +190,7 @@ extension ChatScreen {
     /// panel border, see ``menuChrome``.)
     func configLines(_ editor: ConfigEditor, width: Int) -> [Line] {
         var out: [Line] = [tabBar(editor), Line("")]
+        out += tabExplanationLines(editor.tab, width: width)
         for (index, row) in editor.rows.enumerated() {
             let selected = index == editor.index
             let locked = editor.isLocked(row) // shell governed by the sandbox - not user-toggleable
@@ -203,11 +208,60 @@ extension ChatScreen {
                 + pad + Paint.fg(stateColor, editor.stateLabel(row))
             out.append(Line(line, nil, highlight: selected))
             if selected {
-                let note = locked ? "Set by the sandbox mode - change it on the Sandbox tab." : row.summary
+                // Two different reasons a row can be locked, and they need different explanations:
+                // the sandbox governs the shell, and the Lazy tools switch governs everything below it.
+                let lockNote = editor.tab == .lazyTools
+                    ? "Turn Lazy tools on to change this."
+                    : "Set by the sandbox mode - change it on the Sandbox tab."
+                let note = locked ? lockNote : row.summary
                 for wrapped in wrap(note, width - 10) { out.append(Line("    " + Paint.fg(240, wrapped))) }
                 if row.isContainer { out.append(contentsOf: containerImageLines(editor, width: width)) }
             }
         }
+        return out
+    }
+
+    /// The active tab's ``ConfigEditor/Tab/explanation``, boxed above its rows. Titled with the tab's
+    /// own name: the strip above says which tab you are on, this says what being on it lets you
+    /// change. An experimental tab gets the warning colour and says so in the title, so it cannot be
+    /// mistaken for a settled setting.
+    func tabExplanationLines(_ tab: ConfigEditor.Tab, width: Int) -> [Line] {
+        var out = infoBoxLines(
+            title: tab.title.lowercased() + (tab.isExperimental ? " - EXPERIMENTAL!" : ""),
+            text: tab.explanation, width: width, warning: tab.isExperimental
+        )
+        // A prerequisite the machine may not have gets its own amber box under the explanation,
+        // rather than a clause inside it - it is a thing to go and do, not a thing to understand.
+        if let requirement = tab.requirement {
+            out += infoBoxLines(title: requirement.title, text: requirement.text, width: width, warning: true)
+        }
+        return out
+    }
+
+    /// A titled ⓘ box: what the panel you are looking at is for, drawn above its rows. Blue - the same
+    /// accent the focus arrow uses - so it reads as "here is what this is" at a glance and never as
+    /// another selectable row; the rows below stay grey, so the eye lands here first and then leaves
+    /// it alone. Every overlay that lists things (`/config`'s tabs, `/model`'s three, `/tools`,
+    /// `/mcp`) opens with one, so the panels explain themselves the same way.
+    ///
+    /// `warning` switches it to the amber ⚠ variant - the same colour the MCP sign-in nudge uses - for
+    /// a panel whose feature is experimental rather than merely worth explaining.
+    func infoBoxLines(title: String, text: String, width: Int, warning: Bool = false) -> [Line] {
+        let edge = warning ? Theme.warn.xterm : Theme.accent.xterm
+        let inner = max(24, width - 8) // interior columns between the box's │ bars
+        // Two spaces after the glyph, not one: terminals draw these filling their whole cell, so a
+        // single space leaves it touching the first letter.
+        let heading = (warning ? "⚠" : "ⓘ") + "  " + title
+        let titleFill = max(0, inner - TextWidth.of(heading) - 3) // "─ " + title + " " then fill to ╮
+        var out = [Line("  " + Paint.fg(edge, "╭─ " + heading + " "
+                + String(repeating: "─", count: titleFill) + "╮"))]
+        for wrapped in wrap(text, inner - 2) {
+            let pad = String(repeating: " ", count: max(0, inner - 2 - TextWidth.of(wrapped)))
+            out.append(Line("  " + Paint.fg(edge, "│") + " " + Paint.fg(Theme.dim, wrapped) + pad
+                    + " " + Paint.fg(edge, "│")))
+        }
+        out.append(Line("  " + Paint.fg(edge, "╰" + String(repeating: "─", count: inner) + "╯")))
+        out.append(Line(""))
         return out
     }
 

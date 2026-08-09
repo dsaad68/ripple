@@ -163,6 +163,10 @@ struct ToolsBrowser {
         let gated: Bool // needs the human-in-the-loop approval card before it runs
         let description: String
         let params: [Param]
+        /// Kept out of the prompt and reached through `search_tools` (see ``ToolSearchMiddleware``).
+        /// Shown because an auxiliary tool is otherwise indistinguishable here from a core one - which
+        /// makes a configured tier look like it was never applied.
+        var auxiliary = false
     }
 
     struct Group {
@@ -177,6 +181,14 @@ struct ToolsBrowser {
         /// For the `/model` overlay's Local / Remote tabs: whether this model is on disk / added (gates
         /// the `x` remove key).
         var downloaded = false
+        /// A section heading drawn above this row - the family name plus a dim role tag ("LFM2.5",
+        /// "language"). Set on the first row of each section in the `/model` Local tab; nil everywhere
+        /// else, which draws no heading.
+        var section: (title: String, tag: String)?
+        /// Show ``subtitle`` only while this row is highlighted. The Local tab's rows carry their repo
+        /// id there: printing every one doubles the list's height for a string you only need on the row
+        /// you're about to act on.
+        var subtitleOnSelection = false
     }
 
     /// The overlay heading - "Tools by toolset" for `/tools`, "MCP servers" for `/mcp`.
@@ -213,15 +225,88 @@ struct ToolsBrowser {
 /// edits a working copy of the ``AgentToolPolicy`` plus the developer-log toggle; ``ChatScreen``
 /// persists and applies them on close. (Model selection lives in the unified `/model` overlay.)
 struct ConfigEditor {
-    /// The panel's two tabs, switched with ←/→.
+    /// The panel's tabs, switched with ←/→.
     enum Tab: CaseIterable {
-        case capabilities, sandbox, context, cache
+        case capabilities, lazyTools, sandbox, context, cache
         var title: String {
             switch self {
             case .capabilities: "Capabilities"
+            case .lazyTools: "Lazy Tools"
             case .sandbox: "Sandbox"
             case .context: "Context"
             case .cache: "Cache"
+            }
+        }
+
+        /// Whether the tab's feature is still experimental. Its box then warns in amber with a ⚠
+        /// instead of informing in blue, and says so in the title - lazy tools changes what the model
+        /// can see, which is a different order of risk from the other tabs' settings.
+        var isExperimental: Bool { self == .lazyTools }
+
+        /// Something this tab's feature needs from the machine that macOS does not ship, drawn as a
+        /// second amber ⚠ box under the explanation. The Sandbox tab needs it: nothing on the tab
+        /// hints that its one switch depends on a tool you have to install yourself, and without that
+        /// tool `failover` silently runs commands on the host - the opposite of what turning a sandbox
+        /// on is meant to do.
+        var requirement: (title: String, text: String)? {
+            switch self {
+            case .sandbox:
+                return (
+                    "needs apple containers",
+                    "The sandbox runs on Apple's `container` tool, which is not part of macOS: "
+                        + "install it from github.com/apple/container and run `container system "
+                        + "start`. Without it there is nothing to sandbox into - failover falls back "
+                        + "to the local shell (so commands still run, just unsandboxed) and "
+                        + "container-only refuses to run them at all."
+                )
+            default:
+                return nil
+            }
+        }
+
+        /// What this tab is for, drawn as a titled box above its rows (see
+        /// ``ChatScreen/tabExplanationLines(_:width:)``). Each row already carries a summary of what
+        /// *it* does; this says what the tab as a whole governs, and names the trade-off being made -
+        /// which for several of these is the whole decision. Lazy Tools is the clearest case: "core"
+        /// and "auxiliary" cost two different currencies (prompt tokens against an extra round), and
+        /// nothing on the row itself says so.
+        var explanation: String {
+            switch self {
+            case .capabilities:
+                return "What the agent can do at all. Each switch adds or removes a toolset from "
+                    + "every prompt - turn one off and the model cannot see those tools, let alone "
+                    + "call them. Fewer toolsets means a shorter prompt and a faster first token, so "
+                    + "leave off what this project does not need. A change takes effect on the next "
+                    + "query."
+            case .lazyTools:
+                return "Experimental: a tool the model cannot see is a tool it may not think to look "
+                    + "for, so a tiering that suits one project can quietly change how the agent "
+                    + "behaves in another. Turn it off if answers get worse. It also wants a capable "
+                    + "planner: the smallest models search less reliably, and can answer from a tool's "
+                    + "description rather than calling it. "
+                    + "Core tools are in the model's prompt from the first token - always callable, "
+                    + "and paid for on every single query. Auxiliary tools are not in the prompt at "
+                    + "all: the agent finds them with search_tools and then calls them normally, so "
+                    + "they cost nothing until they are needed, at the price of one extra round the "
+                    + "first time. Moving a toolset re-prefills the prompt once, on the next query. "
+                    + "Filesystem is the one worth making auxiliary first: with ls out of the prompt, "
+                    + "a request to list something stops being answered with a directory listing."
+            case .sandbox:
+                return "Where the agent's shell commands actually run. In a container they cannot "
+                    + "touch your machine, at the cost of a container image and a slower first "
+                    + "command; locally they are immediate and real. Whichever you choose, the shell "
+                    + "still asks before it runs anything - this decides what a yes means."
+            case .context:
+                return "When a long conversation gets summarized. Every model here reports the "
+                    + "context window its own card documents, and some of those are far larger than "
+                    + "a laptop can actually hold - so this threshold, not the window, is what keeps "
+                    + "a session inside your memory. Compact earlier to stay small and cheap; later "
+                    + "to keep more of the conversation verbatim."
+            case .cache:
+                return "The prompt prefix kept on disk so a fresh launch skips the multi-second "
+                    + "prefill. It is pure cache - deleting any of it costs one slower turn and "
+                    + "nothing else - so the settings here are really just how much disk you are "
+                    + "willing to spend on faster first queries."
             }
         }
     }
@@ -250,6 +335,10 @@ struct ConfigEditor {
     /// What the store holds, scanned when the editor opens. Empty until then.
     var inventory: PrefixKVStore.Inventory = .empty
 
+    /// The configured MCP servers, so the Lazy Tools tab can tier them per server. Set when the
+    /// editor opens; empty when none are configured.
+    var mcpServers: [MCPServerConfig] = []
+
     /// Working copy of the compaction threshold, as a percentage of the active model's window.
     var compactionPercent: Int
     /// The active planner's context window, so the Context row can show what the percentage works
@@ -258,6 +347,20 @@ struct ConfigEditor {
 
     static let logRowID = "devlog"
     static let compactionRowID = "compaction"
+    static let toolSearchRowID = "toolsearch"
+    static let retrieverRowID = "toolsearch.model"
+    static let searchLimitRowID = "toolsearch.limit"
+    /// A toolset tier row carries its middleware id after this prefix.
+    static let tierRowPrefix = "tier:"
+    /// An MCP server tier row carries the server name after this prefix.
+    static let mcpTierRowPrefix = "tier.mcp:"
+
+    /// The retrievers offered on the Retriever row, cycled with space. `nil` is the lexical one,
+    /// which needs no model at all.
+    static let retrieverChoices: [String?] = [nil] + ToolSearchModel.allCases.map(\.repoID)
+    /// Match counts offered on the Top matches row.
+    static let searchLimitChoices = [3, 5, 8]
+
     static let prefixKVRowID = "prefixkv"
     static let snapshotsRowID = "prefixkv.snapshots"
     static let sizeRowID = "prefixkv.size"
@@ -308,6 +411,8 @@ struct ConfigEditor {
                             + "session folder for debugging. Off by default; separate from the resumable history."
                     )
                 ]
+        case .lazyTools:
+            return lazyToolRows
         case .sandbox:
             let container = MiddlewareCatalog.container
             return [Row(id: container.id, displayName: container.displayName, summary: container.summary)]
@@ -325,6 +430,92 @@ struct ConfigEditor {
         case .cache:
             return cacheRows
         }
+    }
+
+    /// The Lazy Tools tab: the feature switch, the retriever and match count, then one tier row per
+    /// toolset and per configured MCP server.
+    private var lazyToolRows: [Row] {
+        var rows = [
+            Row(
+                id: Self.toolSearchRowID, displayName: "Lazy tools",
+                summary: "Keep auxiliary tools out of the prompt and let the agent find them with "
+                    + "search_tools. Off prefills every enabled tool, as before. On, the prompt "
+                    + "carries only your core tools - which is what makes a cold first query fast."
+            ),
+            Row(
+                id: Self.retrieverRowID, displayName: "Retriever",
+                summary: "How search_tools ranks tools against what the agent asks for. Lexical "
+                    + "needs no model and no download. The ColBERT encoders score every query token "
+                    + "against every tool token (late interaction), which reads intent far better; "
+                    + "8-bit is the sensible default, bf16 trades memory for a little accuracy. "
+                    + "Space cycles. Download them ahead of time in /model - Local."
+            ),
+            Row(
+                id: Self.searchLimitRowID, displayName: "Top matches",
+                summary: "How many tools one search returns. More gives the model a better chance of "
+                    + "seeing the right one; each costs a line or two of context. Space cycles."
+            )
+        ]
+        // Tier rows are only actionable with the feature on, but stay visible when it is off so the
+        // tab shows what would happen rather than an empty panel.
+        for descriptor in MiddlewareCatalog.all {
+            rows.append(
+                Row(
+                    id: Self.tierRowPrefix + descriptor.id, displayName: descriptor.displayName,
+                    summary: "\(descriptor.summary) Space moves this toolset between core and "
+                        + "auxiliary."
+                )
+            )
+        }
+        for server in mcpServers {
+            rows.append(
+                Row(
+                    id: Self.mcpTierRowPrefix + server.name, displayName: server.name,
+                    summary: "MCP server. Its tool schemas are usually the verbose ones, so "
+                        + "auxiliary is the default. Space moves it between core and auxiliary."
+                )
+            )
+        }
+        return rows
+    }
+
+    /// The middleware id a toolset tier row governs, or nil for any other row.
+    func tierMiddlewareID(of row: Row) -> String? {
+        guard row.id.hasPrefix(Self.tierRowPrefix) else { return nil }
+        return String(row.id.dropFirst(Self.tierRowPrefix.count))
+    }
+
+    /// The MCP server name a tier row governs, or nil for any other row.
+    func tierServerName(of row: Row) -> String? {
+        guard row.id.hasPrefix(Self.mcpTierRowPrefix) else { return nil }
+        return String(row.id.dropFirst(Self.mcpTierRowPrefix.count))
+    }
+
+    /// The tier a row currently shows, or nil if it isn't a tier row.
+    func tier(of row: Row) -> ToolTier? {
+        if let middleware = tierMiddlewareID(of: row) {
+            return policy.auxiliaryMiddleware.contains(middleware) ? .auxiliary : .core
+        }
+        if let server = tierServerName(of: row) {
+            return policy.coreMCPServers.contains(server) ? .core : .auxiliary
+        }
+        return nil
+    }
+
+    /// The label for the Retriever row - the model's short label plus whether its weights are on disk,
+    /// or "lexical (no model)".
+    ///
+    /// The download state belongs here because this row is where the choice is made: without it,
+    /// picking a ColBERT model looks free and the cost shows up as the first `search_tools` call
+    /// silently blocking on a few hundred MB.
+    var retrieverLabel: String {
+        guard let id = policy.toolSearchModel else { return "lexical (no model)" }
+        guard let model = ToolSearchModel(rawValue: id) else { return id }
+        guard let entry = model.catalogEntry else { return model.label }
+        let state = MlxModelLoader.isDownloadedOnDisk(entry.id)
+            ? "ready"
+            : "not downloaded, \(entry.sizeLabel)"
+        return "\(model.label) · \(state)"
     }
 
     /// What the compaction threshold works out to for the active model, e.g. "80% - 105k tokens".
@@ -421,7 +612,14 @@ struct ConfigEditor {
     /// The local shell is governed by the sandbox and not user-toggleable whenever the sandbox is on
     /// (failover forces it on, container-only off). An override - it never mutates `disabledMiddleware`,
     /// so the user's own shell choice is restored once the sandbox is off.
-    func isLocked(_ row: Row) -> Bool { row.id == "shell" && policy.sandbox.isEnabled }
+    func isLocked(_ row: Row) -> Bool {
+        // A tier is meaningless until lazy tools are on - the schemas are all prefilled either way -
+        // so those rows read as governed by the switch above them rather than silently doing nothing.
+        if tier(of: row) != nil || row.id == Self.retrieverRowID || row.id == Self.searchLimitRowID {
+            return !policy.toolSearch
+        }
+        return row.id == "shell" && policy.sandbox.isEnabled
+    }
 
     /// The next value after `current` in `choices`, wrapping. An unrecognised current value (a
     /// hand-edited settings.json) lands on the first choice rather than sticking.
@@ -437,6 +635,11 @@ struct ConfigEditor {
     /// everything else uses `disabledMiddleware`.
     func isOn(_ row: Row) -> Bool {
         if row.id == Self.logRowID { return logMessages }
+        if row.id == Self.toolSearchRowID { return policy.toolSearch }
+        // Tier / retriever / limit rows carry a value, not an on-off state; `stateLabel` shows it.
+        // Answering `true` keeps them from being painted in the "off" red.
+        if tier(of: row) != nil { return true }
+        if row.id == Self.retrieverRowID || row.id == Self.searchLimitRowID { return true }
         if row.id == Self.prefixKVRowID { return prefixKVCache }
         // Not a switch - `stateLabel` shows the threshold instead.
         if row.id == Self.compactionRowID { return true }
@@ -448,6 +651,11 @@ struct ConfigEditor {
 
     /// The state label shown on the right of a row.
     func stateLabel(_ row: Row) -> String {
+        // Lazy-tool rows are checked before the generic `isLocked` branch: locked here means "the
+        // feature is off", not the sandbox's shell governance, and the value is still worth showing.
+        if let tier = tier(of: row) { return tier.label }
+        if row.id == Self.retrieverRowID { return retrieverLabel }
+        if row.id == Self.searchLimitRowID { return "\(policy.toolSearchLimit)" }
         if isLocked(row) { return isOn(row) ? "on - fail over" : "off - container only" }
         if row.isContainer { return policy.sandbox.label }
         if row.id == Self.compactionRowID { return compactionSummary }
@@ -477,6 +685,25 @@ struct ConfigEditor {
             logMessages.toggle()
         } else if row.id == Self.compactionRowID {
             compactionPercent = Self.cycle(compactionPercent, through: Self.compactionChoices)
+        } else if row.id == Self.toolSearchRowID {
+            policy.toolSearch.toggle()
+        } else if row.id == Self.retrieverRowID {
+            policy.toolSearchModel = Self.cycle(policy.toolSearchModel, through: Self.retrieverChoices)
+        } else if row.id == Self.searchLimitRowID {
+            policy.toolSearchLimit = Self.cycle(policy.toolSearchLimit, through: Self.searchLimitChoices)
+        } else if let middleware = tierMiddlewareID(of: row) {
+            if policy.auxiliaryMiddleware.contains(middleware) {
+                policy.auxiliaryMiddleware.remove(middleware)
+            } else {
+                policy.auxiliaryMiddleware.insert(middleware)
+            }
+        } else if let server = tierServerName(of: row) {
+            // Stored as promotions to core, so removing the name restores the auxiliary default.
+            if policy.coreMCPServers.contains(server) {
+                policy.coreMCPServers.remove(server)
+            } else {
+                policy.coreMCPServers.insert(server)
+            }
         } else if row.id == Self.prefixKVRowID {
             prefixKVCache.toggle()
         } else if row.id == Self.snapshotsRowID {

@@ -108,17 +108,33 @@ extension ChatScreen {
         }
     }
 
-    /// In the local `/models-config` browser, `x` removes the highlighted model from the local cache (enter,
-    /// which downloads it, is handled in ``onEnter``). The OpenRouter pane has no `x` - `x` types into
-    /// its filter and enter toggles add/remove. Returns true when the key was handled here.
+    /// The `/model` Local tab's keys, mirroring the Remote tab: printable keys narrow the list,
+    /// backspace edits the query and Ctrl-U clears it. Because typing is spoken for, removing the
+    /// highlighted model from the cache is **ctrl-x** (enter, which downloads it, is handled in
+    /// ``onEnter``). Returns true when the key was handled here.
     func handleModelsBrowserKey(_ byte: UInt8) -> Bool {
-        guard let browser = toolsBrowser, browser.isModels,
-              browser.groups.indices.contains(browser.groupIndex) else { return false }
-        if byte == 0x78 { // 'x' remove (consumed but ignored while a download is in flight)
-            if downloading == nil { removeModel(at: browser.groupIndex) }
+        guard let browser = toolsBrowser, browser.isModels else { return false }
+        if byte == 0x18 { // ctrl-x remove (consumed but ignored while a download is in flight)
+            if downloading == nil, browser.groups.indices.contains(browser.groupIndex) {
+                removeModel(at: browser.groupIndex)
+            }
             return true
         }
-        return false
+        // The highlighted row is re-found in the narrowed list, so refining a query doesn't jump the
+        // selection to whatever now sits at that row number.
+        let anchor = selectedLocalKey
+        switch byte {
+        case 0x15: // Ctrl-U clears the query
+            guard !modelFilter.isEmpty else { return false }
+            modelFilter = ""
+        case 0x7F, 0x08: // backspace
+            guard !modelFilter.isEmpty else { return false }
+            modelFilter.removeLast()
+        case 0x20 ... 0x7E: modelFilter.append(Character(UnicodeScalar(byte)))
+        default: return false // arrows / enter / esc still navigate the narrowed list
+        }
+        rebuildModelsBrowser(keeping: anchor)
+        return true
     }
 
     /// Feed `byte` to the escape-sequence state machine. Returns true if it was consumed (it was
@@ -311,8 +327,14 @@ extension ChatScreen {
                         toggleOpenRouterModel(at: browser.groupIndex)
                     }
                 }
-            } else if browser.isModels { // download the highlighted model
-                if browser.groups.indices.contains(browser.groupIndex) { startModelDownload(at: browser.groupIndex) }
+            } else if browser.isModels { // level 1: drill into a provider; level 2: download the model
+                if browser.groups.indices.contains(browser.groupIndex) {
+                    if localFamily == nil {
+                        openLocalFamily(at: browser.groupIndex)
+                    } else {
+                        startModelDownload(at: browser.groupIndex)
+                    }
+                }
             } else if browser.openGroup == nil { // sign in a not-signed-in MCP server, else open the toolset
                 if let server = mcpLoginTarget(browser) {
                     startMCPLogin(server)
@@ -371,7 +393,10 @@ extension ChatScreen {
             if openRouterProvider == nil { openOpenRouterProvider(at: index) } else { toggleOpenRouterModel(at: index) }
             return
         }
-        if browser.isModels { startModelDownload(at: index); return } // click a model row to pull it
+        if browser.isModels { // click a provider to drill in, or a model to pull it
+            if localFamily == nil { openLocalFamily(at: index) } else { startModelDownload(at: index) }
+            return
+        }
         if let updated = toolsBrowser, let server = mcpLoginTarget(updated) { startMCPLogin(server); return }
         toolsBrowser?.openGroup = index
         toolsScrollTop = true

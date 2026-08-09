@@ -1,5 +1,6 @@
 import DeepAgents
 import DeepAgentsMacTools
+import DeepAgentsMLX
 import Foundation
 
 /// Ripple's concrete deep agent: a text **planner** (LFM2.5 8B-A1B) that breaks work into todos,
@@ -41,6 +42,9 @@ enum RippleDeepAgent {
         policy: AgentToolPolicy = .init(),
         mcpTools: [any AgentTool] = [],
         mcpApprovalDefaults: [String: ToolApprovalMode] = [:],
+        mcpAuxiliaryToolNames: Set<String> = [],
+        mcpToolsetsByTool: [String: String] = [:],
+        toolRetriever: (any ToolRetriever)? = nil,
         projectInstructions: String? = nil
     ) -> ReactAgent {
         // The `vision` subagent (and the screenshot capture that feeds it) only exists when there's
@@ -117,7 +121,11 @@ enum RippleDeepAgent {
         // `container_shell` isn't a catalog capability (it's opt-in via the sandbox mode), so seed
         // its default gating here - ask before running, like the local shell.
         mcpDefaults["container_shell"] = .ask
-        var expansion = policy.expand(extraDefaults: mcpDefaults)
+        // The MCP servers the user tiered auxiliary join the catalog-derived auxiliary set; the whole
+        // set is empty unless `policy.toolSearch` is on, so this is inert until the user opts in.
+        var expansion = policy.expand(
+            extraDefaults: mcpDefaults, extraAuxiliary: mcpAuxiliaryToolNames
+        )
         // Let a gated shell command be edited in the approval card, not just approved or rejected.
         if expansion.interruptOn["shell"] != nil {
             expansion.interruptOn["shell"] = InterruptOnConfig(allowedDecisions: [.approve, .edit, .reject])
@@ -163,8 +171,33 @@ enum RippleDeepAgent {
             includeFilesystem: !policy.disabledMiddleware.contains("filesystem"),
             disabledToolNames: expansion.disabledToolNames,
             messageLog: messageLog,
-            summarization: summarization
+            summarization: summarization,
+            auxiliaryToolNames: expansion.auxiliaryToolNames,
+            toolRetriever: toolRetriever,
+            toolsetsByTool: mcpToolsetsByTool
         )
+    }
+
+    /// The lazy-tool inputs for ``make``, derived from the user's policy and the loaded MCP tools.
+    ///
+    /// Both entry points (`ripple chat` and the headless run) go through this, so the interactive and
+    /// non-interactive agents can't end up with different tiers or a different retriever.
+    ///
+    /// The tier lives in ripple's `settings.json` (via ``AgentToolPolicy/tiered(_:)``) rather than in
+    /// `mcp.json`, which may be a shared `.mcp.json` that other tools read.
+    static func toolSearchInputs(
+        policy: AgentToolPolicy, servers: [MCPServerConfig], mcpTools: [any AgentTool]
+    ) -> (auxiliary: Set<String>, toolsets: [String: String], retriever: (any ToolRetriever)?) {
+        let tiered = policy.tiered(servers)
+        let toolsets = mcpToolsetsByTool(servers: tiered, tools: mcpTools)
+        guard policy.toolSearch else { return ([], toolsets, nil) }
+        let auxiliary = mcpAuxiliaryToolNames(servers: tiered, tools: mcpTools)
+        // No model id means the lexical retriever, which `createDeepAgent` supplies by default. An
+        // unrecognised id (a hand-edited settings.json) falls back to it too rather than failing.
+        let retriever = policy.toolSearchModel
+            .flatMap(ToolSearchModel.init(rawValue:))
+            .map { ColBERTToolRetriever(model: $0) }
+        return (auxiliary, toolsets, retriever)
     }
 
     /// The human-in-the-loop policy for the real-disk filesystem: every file operation needs
