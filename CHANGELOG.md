@@ -50,6 +50,10 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
 - **Every list overlay says what it is.** `/model`'s three tabs, `/tools` and `/mcp` open with the
   same blue ⓘ box the `/config` tabs carry - what the list is, and what enter does to a row (which on
   Local and Remote changes as you drill in).
+- **Lazy tools is flagged experimental.** Its `/config` tab opens with an amber ⚠ box titled
+  `lazy tools - EXPERIMENTAL!` rather than the blue ⓘ the settled tabs carry, and the text leads with
+  why: a tool the model cannot see is a tool it may not think to look for, so a tiering that suits
+  one project can quietly change how the agent behaves in another. The docs and README say so too.
 - **The Local tab is searchable, like the Remote one.** It carries the same bordered input: type to
   narrow the list, backspace to edit, ctrl-u to clear. The query matches a model's name, family, id,
   weight format and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all work, and the

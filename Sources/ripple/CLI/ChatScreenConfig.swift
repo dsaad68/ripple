@@ -222,9 +222,14 @@ extension ChatScreen {
     }
 
     /// The active tab's ``ConfigEditor/Tab/explanation``, boxed above its rows. Titled with the tab's
-    /// own name: the strip above says which tab you are on, this says what being on it lets you change.
+    /// own name: the strip above says which tab you are on, this says what being on it lets you
+    /// change. An experimental tab gets the warning colour and says so in the title, so it cannot be
+    /// mistaken for a settled setting.
     func tabExplanationLines(_ tab: ConfigEditor.Tab, width: Int) -> [Line] {
-        infoBoxLines(title: tab.title.lowercased(), text: tab.explanation, width: width)
+        infoBoxLines(
+            title: tab.title.lowercased() + (tab.isExperimental ? " - EXPERIMENTAL!" : ""),
+            text: tab.explanation, width: width, warning: tab.isExperimental
+        )
     }
 
     /// A titled ⓘ box: what the panel you are looking at is for, drawn above its rows. Blue - the same
@@ -232,12 +237,15 @@ extension ChatScreen {
     /// another selectable row; the rows below stay grey, so the eye lands here first and then leaves
     /// it alone. Every overlay that lists things (`/config`'s tabs, `/model`'s three, `/tools`,
     /// `/mcp`) opens with one, so the panels explain themselves the same way.
-    func infoBoxLines(title: String, text: String, width: Int) -> [Line] {
-        let edge = Theme.accent.xterm
+    ///
+    /// `warning` switches it to the amber ⚠ variant - the same colour the MCP sign-in nudge uses - for
+    /// a panel whose feature is experimental rather than merely worth explaining.
+    func infoBoxLines(title: String, text: String, width: Int, warning: Bool = false) -> [Line] {
+        let edge = warning ? Theme.warn.xterm : Theme.accent.xterm
         let inner = max(24, width - 8) // interior columns between the box's │ bars
-        // Two spaces after the ⓘ, not one: terminals draw the circled glyph filling its whole cell,
-        // so a single space leaves it touching the first letter.
-        let heading = "ⓘ  " + title
+        // Two spaces after the glyph, not one: terminals draw these filling their whole cell, so a
+        // single space leaves it touching the first letter.
+        let heading = (warning ? "⚠" : "ⓘ") + "  " + title
         let titleFill = max(0, inner - TextWidth.of(heading) - 3) // "─ " + title + " " then fill to ╮
         var out = [Line("  " + Paint.fg(edge, "╭─ " + heading + " "
                 + String(repeating: "─", count: titleFill) + "╮"))]

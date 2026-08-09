@@ -238,6 +238,11 @@ struct ConfigEditor {
             }
         }
 
+        /// Whether the tab's feature is still experimental. Its box then warns in amber with a ⚠
+        /// instead of informing in blue, and says so in the title - lazy tools changes what the model
+        /// can see, which is a different order of risk from the other tabs' settings.
+        var isExperimental: Bool { self == .lazyTools }
+
         /// What this tab is for, drawn as a titled box above its rows (see
         /// ``ChatScreen/tabExplanationLines(_:width:)``). Each row already carries a summary of what
         /// *it* does; this says what the tab as a whole governs, and names the trade-off being made -
@@ -253,7 +258,10 @@ struct ConfigEditor {
                     + "leave off what this project does not need. A change takes effect on the next "
                     + "query."
             case .lazyTools:
-                return "Core tools are in the model's prompt from the first token - always callable, "
+                return "Experimental: a tool the model cannot see is a tool it may not think to look "
+                    + "for, so a tiering that suits one project can quietly change how the agent "
+                    + "behaves in another. Turn it off if answers get worse. "
+                    + "Core tools are in the model's prompt from the first token - always callable, "
                     + "and paid for on every single query. Auxiliary tools are not in the prompt at "
                     + "all: the agent finds them with search_tools and then calls them normally, so "
                     + "they cost nothing until they are needed, at the price of one extra round the "

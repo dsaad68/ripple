@@ -32,6 +32,30 @@ struct LazyToolsConfigTests {
         }
     }
 
+    @Test("Lazy tools is the one experimental tab, and its box warns rather than informs")
+    func experimentalTabWarns() {
+        #expect(ConfigEditor.Tab.lazyTools.isExperimental)
+        #expect(ConfigEditor.Tab.allCases.filter(\.isExperimental) == [.lazyTools])
+        #expect(ConfigEditor.Tab.lazyTools.explanation.lowercased().hasPrefix("experimental"))
+
+        let screen = makeScreen()
+        let warning = screen.tabExplanationLines(.lazyTools, width: 100)
+        let plain = screen.tabExplanationLines(.capabilities, width: 100)
+        #expect(warning[0].text.contains("lazy tools - EXPERIMENTAL!"))
+        #expect(warning[0].text.contains("⚠")) // the warning glyph, not the ⓘ
+        #expect(!warning[0].text.contains("ⓘ"))
+        #expect(plain[0].text.contains("ⓘ")) // ...and only that tab's
+        #expect(!plain[0].text.contains("EXPERIMENTAL"))
+        // The box still lines up: an experimental tab is a colour and a title, not a different shape.
+        let box = warning.dropLast()
+        #expect(box.allSatisfy { TextWidth.of($0.text) == TextWidth.of(box[0].text) })
+    }
+
+    private func makeScreen() -> ChatScreen {
+        let agent = RippleDeepAgent.make(textModel: FakeChatModel(answer: "x"))
+        return ChatScreen(variant: DeepAgentVariant.all[0], agent: agent, build: { _, _ in nil }, gate: ApprovalGate())
+    }
+
     @Test("Lazy tools is off by default and toggles with space")
     func featureSwitch() throws {
         var editor = editorOnLazyTab(.init())

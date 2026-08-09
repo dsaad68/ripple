@@ -121,6 +121,11 @@ The default sandbox image is `ghcr.io/astral-sh/uv:python3.13-alpine3.23`. Overr
 
 ## Lazy tools
 
+!!! warning "Experimental"
+    A tool the model cannot see is a tool it may not think to look for, so a tiering that suits one
+    project can quietly change how the agent behaves in another. It is off by default, and the
+    `/config` tab flags it in amber. Turn it off if answers get worse.
+
 By default every enabled tool's JSON schema is written into the model's prompt on every query. With
 around forty tools that is a large fixed cost paid before the model produces its first token, and
 most queries use a handful of them.

@@ -36,7 +36,7 @@ ripple --help              full usage and project links
 Just run `ripple` to start the interactive REPL - no subcommand needed (`ripple chat` is the
 explicit equivalent). Pipe text on stdin (`echo "..." | ripple`) for a one-shot run.
 
-**Lazy tools.** Prefilling forty tool schemas on every query is most of a cold first response. In
+**Lazy tools** *(experimental)*. Prefilling forty tool schemas on every query is most of a cold first response. In
 `/config` → **Lazy Tools** you mark each toolset (and each MCP server) *core* or *auxiliary*: core
 schemas stay in the prompt, auxiliary ones are found on demand with `search_tools` and then called
 normally, costing nothing until they are needed. Matching is lexical by default, or semantic via an
