@@ -72,16 +72,17 @@ Type `/model` at the prompt to open the model overlay. It has three tabs:
 
 === "Local"
 
-    Browse the Hugging Face catalog of MLX-quantized models as a table, grouped by family and tagged
-    **Text** / **Vision** / **Text + Vision** / **Embedding** (chat models first, the `search_tools`
-    retrieval encoders last). Each row shows its download status, weight format, size, context window
-    and per-turn output budget; type to filter, as on the Remote tab. You can trigger a download
-    without leaving the chat. See [Local MLX models](local.md).
+    Browse the on-device MLX catalog: model families first, split into **LLM** and **Embedding**,
+    then that family's models under a heading per role (**Text** / **Vision** / **Text + Vision**).
+    Each model row shows its download status, weight format, size, context window and per-turn output
+    budget; type to filter. You can trigger a download without leaving the chat. See
+    [Local MLX models](local.md).
 
 === "Remote"
 
-    Browse OpenRouter's free catalog. Add or remove models from your remote registry.
-    See [Remote models](remote.md).
+    Browse OpenRouter's free catalog, in the same two levels as the Local tab: providers, then that
+    provider's models under a role heading, carrying the same context-window and output columns. Add
+    or remove models from your remote registry. See [Remote models](remote.md).
 
 ---
 

@@ -305,6 +305,7 @@ extension ChatScreen {
             modelHub?.select.remote = RippleModelConfig.loadModels(workingDirectory: modelsWorkingDirectory)
         case .local:
             modelFilter = ""
+            localFamily = nil
             toolsBrowser = makeModelsBrowser()
             toolsScrollTop = true
         case .remote:
@@ -336,10 +337,12 @@ extension ChatScreen {
                 closeModelHub()
             }
         case .local:
-            // Esc clears the search first (as on the Remote tab), and only then closes the hub.
+            // The Remote tab's ladder, step for step: the search first, then the drill-in, then the hub.
             if !modelFilter.isEmpty {
                 modelFilter = ""
                 rebuildModelsBrowser(keeping: nil)
+            } else if localFamily != nil {
+                backToLocalFamilies()
             } else {
                 closeModelHub()
             }
@@ -365,6 +368,7 @@ extension ChatScreen {
         modelHub = nil
         modelEditingIdle = false
         modelFilter = ""
+        localFamily = nil
         if let editor { applyModelSelect(editor) }
     }
 
@@ -479,7 +483,16 @@ extension ChatScreen {
     /// rows while open. The tab strip + key hints ride the panel border (see ``menuChrome``).
     func modelSelectLines(_ editor: ModelSelectEditor, width: Int) -> [Line] {
         if let pick = editor.picking { return modelPickLines(pick) }
-        var out: [Line] = []
+        var out: [Line] = infoBoxLines(
+            title: "select",
+            text: "Which models this project runs, and how long they stay in memory. The main agent "
+                + "plans and delegates; the vision model is a second model the vision subagent loads "
+                + "only when the agent looks at the screen, which is why it is off until you pick "
+                + "one. Both lists hold the models you have downloaded on the Local tab plus any "
+                + "remote ones registered on Remote. Choices are saved to this project's "
+                + "settings.json, so reopening ripple here starts on them.",
+            width: width
+        )
         for (index, row) in editor.rows.enumerated() {
             if row.id == ModelSelectEditor.mainIdleRowID {
                 out.append(Line(""))

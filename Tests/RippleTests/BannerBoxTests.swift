@@ -103,6 +103,28 @@ struct BannerBoxTests {
         }
     }
 
+    /// A narrow pane wraps its values onto continuation lines instead of clipping them. The banner's
+    /// whole job is telling you what is loaded; a model name or MCP list cut off at "…" fails at it.
+    @Test(arguments: [58, 64, 72])
+    func narrowPanesWrapInsteadOfClipping(width: Int) {
+        let lines = ChatScreen.bannerBox(
+            width: width, planner: "LFM2.5 · 1.2B Instruct", vision: "LFM2.5-VL · 450M",
+            cwd: "~/GitHub/mispher/some/deeply/nested/working/directory/that/is/too/long",
+            mcp: ["parallel-search-mcp", "deepwiki", "claude-in-chrome"],
+            instructions: ["AGENTS.md", "CLAUDE.md"],
+            toolSearch: "ColBERT 350M (8-bit) · 35 tools on demand", introFrame: 0
+        )
+        let text = lines.map(\.text).joined(separator: "\n")
+        // Every word survives - nothing is traded for an ellipsis.
+        for word in ["Instruct", "ColBERT", "demand", "parallel-search-mcp", "deepwiki", "CLAUDE.md"] {
+            #expect(text.contains(word), "width \(width) lost \(word)")
+        }
+        // ...and wrapping never breaks the box.
+        for row in lines.filter({ !$0.text.isEmpty }) {
+            #expect(TextWidth.of(row.text) == width + 2, "width \(width): <\(row.text)>")
+        }
+    }
+
     @Test func wordmarkKeepsItsWidthWhileAnimating() {
         for frame in 0 ... 18 {
             #expect(TextWidth.of(ChatScreen.rippleWordmark("ripple", frame: frame)) == 6)

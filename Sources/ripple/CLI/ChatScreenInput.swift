@@ -120,9 +120,9 @@ extension ChatScreen {
             }
             return true
         }
-        // The highlighted model is re-found in the narrowed list, so refining a query doesn't jump
-        // the selection to whatever now sits at that row number.
-        let anchor = selectedLocalModelID
+        // The highlighted row is re-found in the narrowed list, so refining a query doesn't jump the
+        // selection to whatever now sits at that row number.
+        let anchor = selectedLocalKey
         switch byte {
         case 0x15: // Ctrl-U clears the query
             guard !modelFilter.isEmpty else { return false }
@@ -327,8 +327,14 @@ extension ChatScreen {
                         toggleOpenRouterModel(at: browser.groupIndex)
                     }
                 }
-            } else if browser.isModels { // download the highlighted model
-                if browser.groups.indices.contains(browser.groupIndex) { startModelDownload(at: browser.groupIndex) }
+            } else if browser.isModels { // level 1: drill into a provider; level 2: download the model
+                if browser.groups.indices.contains(browser.groupIndex) {
+                    if localFamily == nil {
+                        openLocalFamily(at: browser.groupIndex)
+                    } else {
+                        startModelDownload(at: browser.groupIndex)
+                    }
+                }
             } else if browser.openGroup == nil { // sign in a not-signed-in MCP server, else open the toolset
                 if let server = mcpLoginTarget(browser) {
                     startMCPLogin(server)
@@ -387,7 +393,10 @@ extension ChatScreen {
             if openRouterProvider == nil { openOpenRouterProvider(at: index) } else { toggleOpenRouterModel(at: index) }
             return
         }
-        if browser.isModels { startModelDownload(at: index); return } // click a model row to pull it
+        if browser.isModels { // click a provider to drill in, or a model to pull it
+            if localFamily == nil { openLocalFamily(at: index) } else { startModelDownload(at: index) }
+            return
+        }
         if let updated = toolsBrowser, let server = mcpLoginTarget(updated) { startMCPLogin(server); return }
         toolsBrowser?.openGroup = index
         toolsScrollTop = true

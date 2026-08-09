@@ -444,7 +444,8 @@ extension ChatScreen {
             ? modelHubTabStrip(modelHub!.tab)
             : panelTitle(browser.title)
 
-        var innerHeader: [Line] = []
+        // What this pane is for, in the same ⓘ box the `/config` tabs carry.
+        var innerHeader: [Line] = browserInfoLines(browser, width: width)
         if browser.isOpenRouter {
             // A real bordered filter input (matching the main input box) so the user sees what they
             // typed; the provider / count context sits dim below it.
@@ -474,8 +475,11 @@ extension ChatScreen {
         } else if browser.isModels {
             if downloading != nil {
                 footerText = "←→ tabs · ↑↓ select · esc cancel download"
+            } else if localFamily != nil {
+                footerText = "↑↓ select · type to filter · enter download · ctrl-x remove · esc "
+                    + (modelFilter.isEmpty ? "back" : "clear")
             } else {
-                footerText = "←→ tabs · ↑↓ select · type to filter · enter download · ctrl-x remove · esc "
+                footerText = "←→ tabs · ↑↓ select · type to filter · enter open · esc "
                     + (modelFilter.isEmpty ? "close" : "clear")
             }
         } else if browser.isMCP {
@@ -522,6 +526,52 @@ extension ChatScreen {
         return (chrome, innerHeader, groups)
     }
 
+    /// The ⓘ box each browser pane opens with - what this list *is*, and what acting on a row does.
+    /// The Local and Remote tabs say it differently at each level, because drilling in changes what
+    /// enter means (open a provider, then pull or register a model).
+    private func browserInfoLines(_ browser: ToolsBrowser, width: Int) -> [Line] {
+        let title: String
+        let text: String
+        if browser.isModels {
+            title = "local models"
+            text = localFamily == nil
+                ? "On-device MLX models by family, split into the LLM ones you chat with and the "
+                + "embedding encoders that back search_tools - an encoder has no LM head, so choosing "
+                + "one as a planner would only fail at load. A family is the model line; the "
+                + "precision and the text-or-vision variant are what you pick inside it. Open one to "
+                + "download; nothing is fetched until you ask for it."
+                : "This family's models, grouped by what they are for. Each row shows whether it is "
+                + "on disk, its weight format, and the three numbers that decide whether it fits: "
+                + "download size, context window, and the tokens one turn may generate. Downloads "
+                + "run here in the chat and resume if you cancel them."
+        } else if browser.isOpenRouter {
+            title = "remote models"
+            text = openRouterProvider == nil
+                ? "Free models from OpenRouter's public catalog, by provider. Adding one writes an "
+                + "entry to ~/.ripple/settings.json pointing at OpenRouter's OpenAI-compatible "
+                + "endpoint - nothing runs on this machine, and the request leaves it. Using one "
+                + "needs OPENROUTER_API_KEY; listing them does not."
+                : "This provider's free models, grouped by what they are for. Enter adds a model to "
+                + "your registry (or removes it again); it then appears in the Select tab beside "
+                + "the downloaded local ones. The context window and output budget are whatever "
+                + "the catalog advertises for the serving provider."
+        } else if browser.isMCP {
+            title = "mcp servers"
+            text = "External tool servers from mcp.json / .mcp.json, and the tools each one "
+                + "contributes to the agent. A server's tools are ordinary tools once connected - they "
+                + "go through the same approval gate as everything else. Servers that need a browser "
+                + "sign-in say so here, and r starts it."
+        } else {
+            title = "tools"
+            text = "Every tool this agent has right now, by the middleware that contributes it - the "
+                + "live stack, so it reflects the capabilities you have switched on and any MCP "
+                + "servers that connected. Open a toolset to read each tool's description and "
+                + "parameters, which is what the model itself is given. A hollow marker means the tool "
+                + "is auxiliary: reachable through search_tools, deliberately not in the prompt."
+        }
+        return infoBoxLines(title: title, text: text, width: width)
+    }
+
     /// A section heading above the first row of a family in the Local tab: the family name, its dim
     /// role tag ("language" / "vision" / "embedding"), and a rule running out to the panel edge. Every
     /// heading but the first is preceded by a blank line, so the families read as separate blocks.
@@ -535,15 +585,22 @@ extension ChatScreen {
         return first ? [Line(header)] : [Line(""), Line(header)]
     }
 
-    /// The Local tab's inventory line: how many catalog rows are showing (and out of how many, while a
-    /// search narrows them), then the catalog-wide count of what is downloaded and roughly what it
-    /// occupies - a whole-disk figure the search must not appear to shrink.
+    /// The Local tab's context line, mirroring the Remote tab's: what level you are on and how much is
+    /// showing, then the catalog-wide count of what is downloaded and roughly what it occupies - a
+    /// whole-disk figure a search must not appear to shrink.
     private func localModelsSummary(shown: Int) -> String {
         let downloaded = MlxModel.catalog.filter { ModelCache.isDownloaded($0.id) }
         let onDisk = downloaded.reduce(0.0) { $0 + $1.approxGB }
-        let scope = modelFilter.isEmpty ? "\(shown) models" : "\(shown) of \(MlxModel.catalog.count) models"
-        let size = onDisk >= 1 ? String(format: "%.1f GB", onDisk) : String(format: "%.0f MB", onDisk * 1024)
-        return "\(scope)  ·  \(downloaded.count) downloaded  ·  ~\(size) on disk"
+        let scope: String
+        if let drill = localFamily {
+            let family = drill.split(separator: "/").dropFirst().joined(separator: "/")
+            scope = "› \(family)  ·  \(shown) model" + (shown == 1 ? "" : "s")
+        } else {
+            scope = "\(shown) famil" + (shown == 1 ? "y" : "ies")
+                + (modelFilter.isEmpty ? "" : " matching \"\(modelFilter)\"")
+        }
+        return "\(scope)  ·  \(downloaded.count) of \(MlxModel.catalog.count) downloaded"
+            + "  ·  ~\(ChatScreen.diskLabel(onDisk)) on disk"
     }
 
     /// The highest first-group index that still fills `bodyHeight` (so scrolling never strands the

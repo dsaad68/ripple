@@ -11,9 +11,15 @@ struct OpenRouterModel: Sendable, Hashable {
     let name: String
     /// The advertised context window in tokens, when the catalog reports one.
     let contextLength: Int?
+    /// What one response may generate, from the serving provider's `max_completion_tokens`, when the
+    /// catalog reports it - the remote counterpart of a local model's ``MlxModel/maxOutputTokens``.
+    let maxCompletionTokens: Int?
     /// True when the model accepts image input (its `architecture.input_modalities` lists `image`),
     /// so the added entry can also back the deep agent's `vision` subagent.
     let vision: Bool
+
+    /// What the model is for, in the same words the Local tab uses for an on-device row.
+    var roleLabel: String { vision ? "Text + Vision" : "Text" }
 
     /// The provider slug - the id segment before the first `/` (e.g. `meta-llama`, `google`).
     var providerSlug: String { id.split(separator: "/").first.map(String.init) ?? id }
@@ -68,6 +74,7 @@ enum OpenRouterCatalog {
                 id: entry.id,
                 name: entry.name ?? entry.id,
                 contextLength: entry.contextLength,
+                maxCompletionTokens: entry.topProvider?.maxCompletionTokens,
                 vision: entry.architecture?.inputModalities?.contains("image") ?? false
             )
         }
@@ -85,6 +92,7 @@ enum OpenRouterCatalog {
         let name: String?
         let contextLength: Int?
         let architecture: Architecture?
+        let topProvider: TopProvider?
 
         /// Free models carry the `:free` id suffix on OpenRouter; anything else is a paid (or
         /// preview) variant and is hidden, even if it currently lists a zero token price.
@@ -93,6 +101,7 @@ enum OpenRouterCatalog {
         enum CodingKeys: String, CodingKey {
             case id, name, architecture
             case contextLength = "context_length"
+            case topProvider = "top_provider"
         }
     }
 
@@ -101,6 +110,14 @@ enum OpenRouterCatalog {
 
         enum CodingKeys: String, CodingKey {
             case inputModalities = "input_modalities"
+        }
+    }
+
+    private struct TopProvider: Decodable {
+        let maxCompletionTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case maxCompletionTokens = "max_completion_tokens"
         }
     }
 }

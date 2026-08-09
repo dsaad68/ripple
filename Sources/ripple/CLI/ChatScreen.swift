@@ -146,6 +146,9 @@ final class ChatScreen {
     /// against each catalog model's name, family, id, role and weight format). Empty = show all. With
     /// printable keys spoken for, removing a model is ctrl-x rather than `x`.
     var modelFilter = ""
+    /// The provider the Local tab is drilled into (``LocalProvider/key``, e.g. "LLM/LiquidAI"), or nil
+    /// while showing the grouped provider list. Mirrors `openRouterProvider` on the Remote tab.
+    var localFamily: String?
 
     // An in-progress model download (from the `/model` Local tab or a model switch), shown as a
     // progress bar above the input box; the task is cancellable with esc.

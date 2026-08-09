@@ -62,12 +62,30 @@ extension ChatScreen {
         let rightW = max(18, (width - 7) * 2 / 5) // ~40% right pane -> divider near 58%, fills wide screens
         let leftW = (width - 7) - rightW
 
-        // The role label (grey) in a fixed column, then the model name (white) - e.g. "main agent  8B-A1B".
-        func modelRow(_ role: String, _ id: String) -> String {
-            let name = clip(id, max(1, leftW - 14))
-            let pad = String(repeating: " ", count: max(2, 12 - TextWidth.of(role)))
-            return Paint.fg(245, role) + Paint.fg(252, pad + name)
+        // A grey label in a fixed column and its value beside it - "main agent  LFM2.5 · 1.2B
+        // Instruct" - wrapping onto continuation lines indented under the value when the pane is too
+        // narrow for it. Clipping these was the wrong trade: a model name, the retriever, or the MCP
+        // list cut off at "…" is exactly what someone opens the banner to read.
+        func labelled(_ label: String, _ value: String, column: Int? = nil, color: Int = 252) -> [String] {
+            let start = column ?? max(TextWidth.of(label) + 2, 12)
+            // Under ~18 columns beside the label there is no room to wrap into: words start being cut
+            // mid-token, which is worse than the clipping this replaced. Give the value the whole pane
+            // instead, on its own lines under the label.
+            guard leftW - start >= 18 else {
+                return [Paint.fg(245, label)]
+                    + Self.wrapPlain(value, width: max(1, leftW - 2)).map { "  " + Paint.fg(color, $0) }
+            }
+            // The gap is painted with the label, not left bare between two colored runs: an escape
+            // sequence landing mid-gap would split "instructions: " into pieces for anything reading
+            // the rendered text.
+            let pad = String(repeating: " ", count: max(1, start - TextWidth.of(label)))
+            let lines = Self.wrapPlain(value, width: leftW - start)
+            guard let first = lines.first else { return [Paint.fg(245, label)] }
+            let hanging = String(repeating: " ", count: start)
+            return [Paint.fg(245, label + pad) + Paint.fg(color, first)]
+                + lines.dropFirst().map { hanging + Paint.fg(color, $0) }
         }
+        func modelRow(_ role: String, _ id: String) -> [String] { labelled(role, id) }
         func hint(_ key: String, _ label: String) -> String {
             let pad = String(repeating: " ", count: max(1, 4 - TextWidth.of(key)))
             return Paint.fg(111, key) + Paint.fg(250, pad + label)
@@ -82,26 +100,26 @@ extension ChatScreen {
             art[2],
             Paint.fg(244, "on-device deep agent"),
             "",
-            Paint.fg(244, "models"),
-            modelRow("main agent", planner),
-            modelRow("vision", vision)
+            Paint.fg(244, "models")
         ]
+        left += modelRow("main agent", planner)
+        left += modelRow("vision", vision)
         // Lazy tools change what the agent can see, so the banner says so - and names the retriever,
         // which is otherwise only visible inside /config.
-        if let toolSearch { left.append(modelRow("tool search", toolSearch)) }
+        if let toolSearch { left += modelRow("tool search", toolSearch) }
         if !mcp.isEmpty { // the first three configured MCP servers, then `…`
             let summary = mcp.prefix(3).joined(separator: ", ") + (mcp.count > 3 ? ", …" : "")
-            left += ["", Paint.fg(244, "available mcps: ") + Paint.fg(245, clip(summary, leftW - 16))]
+            left += [""] + labelled("available mcps:", summary, column: 16, color: 245)
             if !needsAuth.isEmpty { // a yellow nudge that some need a sign-in (do it in /mcp)
                 let label = needsAuth.count == 1 ? "\(needsAuth[0]) needs sign-in" : "\(needsAuth.count) need sign-in"
-                left += [Paint.fg(179, clip("⚠ " + label + " · /mcp", leftW))]
+                left += Self.wrapPlain("⚠ " + label + " · /mcp", width: leftW).map { Paint.fg(179, $0) }
             }
         }
         if !instructions.isEmpty { // the loaded AGENTS.md / CLAUDE.md / RIPPLE.md, first three then `…`
             let summary = instructions.prefix(3).joined(separator: ", ") + (instructions.count > 3 ? ", …" : "")
-            left += ["", Paint.fg(244, "instructions: ") + Paint.fg(245, clip(summary, leftW - 14))]
+            left += [""] + labelled("instructions:", summary, column: 14, color: 245)
         }
-        left += ["", Paint.fg(240, clip(cwd, leftW))]
+        left += [""] + Self.wrapPlain(cwd, width: leftW).map { Paint.fg(240, $0) }
         let right: [String] = [
             "",
             Paint.bold(Paint.fg(141, "Getting started")),

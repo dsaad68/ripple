@@ -29,22 +29,38 @@ Ripple is published in lockstep with `deepagents-swift`, so the two version numb
   a container is slower than the local shell, why the compaction threshold rather than the model's
   window is what keeps a session inside your memory, that the prefill cache is pure disk-for-speed.
   Only Lazy Tools had one before, as plain grey text; the rows' own summaries are unchanged.
-- **`/model` → Local is a table now, grouped by family.** The flat two-line-per-model list is gone.
-  Each model is one row - its name within the family, ✓ on disk / ○ not yet, the weight format, the
-  download size, the **context window**, and the **tokens one turn may generate** - in aligned
-  columns, under a heading per family tagged with what it is for - `LFM2.5 · Text`,
-  `Ornith · Text + Vision`, `LFM2.5-ColBERT · Embedding`. Chat models come first, then the vision
-  models, and the `search_tools` retrieval encoders last, so an embedding model is no longer mixed in
-  among the models you can chat to, and a unified VLM no longer reads as text-only. The Hugging Face
+- **`/model` → Local and Remote are the same view now.** Local was a flat twenty-one-row list with the
+  family repeated on every row, the repo id printed for all of them, no search, and nothing about the
+  two numbers that decide whether a model fits. It has the Remote tab's two levels instead: **model
+  families** first - split into **LLM** and **Embedding**, because a retrieval encoder has no LM head
+  and picking one as a planner only fails at load - then that family's models when you press enter,
+  under a heading per role (**Text**, **Vision**, **Text + Vision** for a unified VLM like Ornith
+  that plans *and* sees images). A family is the model line, so LFM2.5's vision conversions sit
+  inside it under the Vision heading rather than in a family of their own.
+
+  Each model row is one line of aligned columns: ✓ on disk / ○ not yet, the weight format, the
+  download size, the **context window**, and the **tokens one turn may generate**. The Hugging Face
   id, what the model is for, and the "default" note move to a subtitle under the highlighted row,
-  which halves the list's height. A summary line above it reports how much of the catalog is showing
-  and what the downloaded models cost on disk.
+  which halves the list's height. Above it, the same context line the Remote tab carries.
+- **Remote model rows carry what Local's do.** The same ✓/○ marker, context window and output budget,
+  in the same cells, grouped by the same role headings - so comparing a free remote model with one
+  you could download is reading across rather than translating. Where a local row prices itself in
+  gigabytes a remote one is simply `free`; the output budget comes from the catalog's
+  `max_completion_tokens`, newly decoded.
+- **Every list overlay says what it is.** `/model`'s three tabs, `/tools` and `/mcp` open with the
+  same blue ⓘ box the `/config` tabs carry - what the list is, and what enter does to a row (which on
+  Local and Remote changes as you drill in).
 - **The Local tab is searchable, like the Remote one.** It carries the same bordered input: type to
   narrow the list, backspace to edit, ctrl-u to clear. The query matches a model's name, family, id,
   weight format and role, so `thinking`, `gemma`, `4-bit`, `vision` and `embedding` all work, and the
   highlighted model stays highlighted as the query is refined. **esc** clears the query before it
   closes the overlay. Because printable keys are now the search, **removing a model is ctrl-x**, not
   `x`.
+- **The banner wraps instead of clipping.** In a narrow terminal the left pane cut its values off at
+  an ellipsis - `tool search  ColBERT 350M (8-bit) · 35 tools o…`, `available mcps: deepwiki, …` -
+  which is exactly the text the banner exists to show. Values now wrap onto continuation lines
+  indented under the label, and when the label leaves under ~18 columns beside it (a 58-column
+  terminal) the value takes the whole pane on its own lines rather than being broken mid-word.
 - **The banner and status line name the model family-first.** `LFM2.5 · 1.2B Instruct` rather than a
   bare `1.2B Instruct`, which said nothing about *which* 1.2B once several families were downloaded.
   Same in the vision row and the model-switch notes.

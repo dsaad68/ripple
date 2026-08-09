@@ -68,33 +68,79 @@ struct RippleModelTests {
         #expect(CLIProgressBar.barString(fraction: 0, width: 10).filter { $0 == "█" }.count == 0)
     }
 
-    @Test("The Local tab has one row per catalog model, in section order, flagged by downloaded state")
-    func modelsBrowserMatchesCatalog() {
+    @Test("The Local tab opens on model families, grouped LLM then Embedding")
+    func modelsBrowserListsFamilies() {
         let screen = makeScreen()
         let browser = screen.makeModelsBrowser()
         #expect(browser.isModels)
         #expect(browser.title == "Local models")
-        #expect(browser.groups.count == MlxModel.catalog.count)
-        // The rows follow `localModelRows` (sectioned), not raw catalog order - the indices the
-        // download / remove keys use.
-        #expect(Set(screen.localModelRows.map(\.id)) == Set(MlxModel.catalog.map(\.id)))
+        #expect(screen.localFamily == nil) // level 1
+        #expect(browser.groups.map(\.title) == screen.localFamilies.map(\.name))
+        #expect(browser.groups.allSatisfy { $0.trailing != nil }) // downloaded / total / on-disk
+        // Two headings, in order, and only on each group's first row.
+        let headings = browser.groups.compactMap(\.section)
+        #expect(headings.map(\.title) == ["LLM", "Embedding"])
+        // One row per model line - LiquidAI's whole LFM2.5 line is one row, vision variants included.
+        #expect(browser.groups.map(\.title) == ["LFM2.5", "Ornith", "Qwen3.6", "Gemma 4", "LFM2.5-ColBERT"])
+        // Every model is reachable through exactly one family row, and the encoders sit apart from
+        // the models you can actually chat to.
+        #expect(screen.localFamilies.flatMap(\.models).count == MlxModel.catalog.count)
+        let llm = screen.localFamilies.filter { $0.group == .llm }.flatMap(\.models)
+        let embedding = screen.localFamilies.filter { $0.group == .embedding }.flatMap(\.models)
+        #expect(llm.allSatisfy { $0.kind != .retriever })
+        #expect(embedding.allSatisfy { $0.kind == .retriever })
+        #expect(Set(embedding.map(\.id)) == Set(MlxModel.retrieverCatalog.map(\.id)))
+        // No model rows at level 1, so the download / remove keys, which index them, are inert.
+        #expect(screen.localModelRows.isEmpty)
+        #expect(screen.selectedLocalModelID == nil)
+    }
+
+    @Test("Opening a family lists just its models, under a heading per role")
+    func modelsBrowserDrillsIntoAFamily() throws {
+        let screen = makeScreen()
+        screen.openModelHub(tab: .local)
+        let index = try #require(screen.localFamilies.firstIndex { $0.family == .lfm2 })
+        screen.openLocalFamily(at: index)
+        #expect(screen.localFamily == "LLM/LFM2.5")
+
+        let browser = try #require(screen.toolsBrowser)
+        #expect(browser.groups.map(\.title) == screen.localModelRows.map(\.displayName))
+        #expect(screen.localModelRows.allSatisfy { $0.family == .lfm2 })
+        // The vision conversions are the same line, so they come along - separated by role, not by a
+        // second family row.
+        #expect(browser.groups.compactMap(\.section).map(\.title) == ["Text", "Vision"])
+        #expect(screen.localModelRows.contains { $0.id.contains("LFM2.5-VL") })
         for (group, model) in zip(browser.groups, screen.localModelRows) {
-            #expect(group.title == model.variantName) // the family lives in the heading, not every row
             #expect(group.downloaded == ModelCache.isDownloaded(model.id)) // reflects the real cache
-            #expect(group.trailing != nil) // the ✓/○ + format / size / context / output columns
             #expect(group.subtitle?.contains(model.id) == true) // the id is the highlighted row's subtitle
             #expect(group.subtitleOnSelection) // ...and only that row's
         }
+
+        // Esc backs out to the family list with that family still highlighted, then closes.
+        screen.escapeModelHub()
+        #expect(screen.localFamily == nil)
+        #expect(screen.toolsBrowser?.groupIndex == index)
+        screen.escapeModelHub()
+        #expect(screen.modelHub == nil)
     }
 
-    @Test("Each family opens a section tagged with what it is for, encoders last")
-    func modelsBrowserSectionsByFamily() {
+    @Test("A family that takes images splits into Text + Vision and Text")
+    func unifiedVLMSplitsByRole() throws {
         let screen = makeScreen()
-        let headings = screen.makeModelsBrowser().groups.compactMap(\.section)
-        #expect(headings.map(\.title) == ["LFM2.5", "Ornith", "Qwen3.6", "Gemma 4", "LFM2.5-VL", "LFM2.5-ColBERT"])
-        #expect(headings.map(\.tag) == ["Text", "Text + Vision", "Text", "Text", "Vision", "Embedding"])
-        // One heading per family, on that family's first row only.
-        #expect(screen.makeModelsBrowser().groups.filter { $0.section != nil }.count == headings.count)
+        screen.openModelHub(tab: .local)
+        let index = try #require(screen.localFamilies.firstIndex { $0.family == .ornith })
+        screen.openLocalFamily(at: index)
+        #expect(screen.toolsBrowser?.groups.compactMap(\.section).map(\.title) == ["Text + Vision"])
+    }
+
+    @Test("The Embedding group drills into the encoders alone")
+    func embeddingGroupIsItsOwnDrill() throws {
+        let screen = makeScreen()
+        screen.openModelHub(tab: .local)
+        let index = try #require(screen.localFamilies.firstIndex { $0.group == .embedding })
+        screen.openLocalFamily(at: index)
+        #expect(screen.localModelRows.allSatisfy { $0.kind == .retriever })
+        #expect(screen.toolsBrowser?.groups.compactMap(\.section).map(\.title) == ["Embedding"])
     }
 
     @Test("A row's columns carry the size, context window and output budget")
@@ -122,23 +168,22 @@ struct RippleModelTests {
         #expect(!columns.contains("out"))
     }
 
-    @Test("The Local tab's search narrows the rows and keeps the indices aligned")
-    func modelsBrowserSearchNarrowsRows() {
+    @Test("A search narrows both levels - the family list and the models inside one")
+    func modelsBrowserSearchNarrowsBothLevels() {
         let screen = makeScreen()
         screen.modelFilter = "thinking"
-        let rows = screen.localModelRows
-        #expect(!rows.isEmpty)
-        #expect(rows.allSatisfy { $0.id.contains("Thinking") })
-        #expect(screen.makeModelsBrowser().groups.count == rows.count)
+        // Only LFM2.5 has a Thinking row, so the family list collapses to it.
+        #expect(screen.localFamilies.map(\.name) == ["LFM2.5"])
+        #expect(screen.localFamilies.flatMap(\.models).allSatisfy { $0.id.contains("Thinking") })
 
         screen.modelFilter = "embedding" // the role tag is searchable, not just the name
-        #expect(screen.localModelRows.allSatisfy { $0.kind == .retriever })
+        #expect(screen.localFamilies.allSatisfy { $0.group == .embedding })
 
         screen.modelFilter = "vision" // ...and a unified VLM is found by it too, though it is cataloged text
-        #expect(screen.localModelRows.contains { $0.id.contains("Ornith") })
+        #expect(screen.localFamilies.flatMap(\.models).contains { $0.id.contains("Ornith") })
 
         screen.modelFilter = "no-such-model"
-        #expect(screen.localModelRows.isEmpty)
+        #expect(screen.localFamilies.isEmpty)
         #expect(screen.makeModelsBrowser().emptyMessage.contains("no-such-model"))
     }
 
@@ -149,7 +194,7 @@ struct RippleModelTests {
         #expect(screen.modelFilter.isEmpty)
         for byte in Array("vl".utf8) { #expect(screen.handleModelsBrowserKey(byte)) }
         #expect(screen.modelFilter == "vl")
-        #expect(screen.localModelRows.allSatisfy { $0.id.contains("VL") })
+        #expect(screen.localFamilies.flatMap(\.models).allSatisfy { $0.id.contains("VL") })
         // 'x' is a query character now, not the remove key - ctrl-x is.
         #expect(screen.handleModelsBrowserKey(0x78))
         #expect(screen.modelFilter == "vlx")
@@ -158,14 +203,14 @@ struct RippleModelTests {
         // ctrl-x is the remove key: it is consumed rather than typed. Pressed here against a query
         // that matches nothing, so the assertion never deletes a model from the real cache.
         for byte in Array("-no-such-model".utf8) { _ = screen.handleModelsBrowserKey(byte) }
-        #expect(screen.localModelRows.isEmpty)
+        #expect(screen.localFamilies.isEmpty)
         #expect(screen.handleModelsBrowserKey(0x18))
         #expect(screen.modelFilter == "vl-no-such-model")
 
         // Esc clears the query first, and only then closes the overlay.
         screen.escapeModelHub()
         #expect(screen.modelFilter.isEmpty)
-        #expect(screen.localModelRows.count == MlxModel.catalog.count)
+        #expect(screen.localFamilies.flatMap(\.models).count == MlxModel.catalog.count)
         #expect(screen.modelHub != nil)
         screen.escapeModelHub()
         #expect(screen.modelHub == nil)
@@ -176,6 +221,7 @@ struct RippleModelTests {
         let screen = makeScreen()
         screen.openModelHub(tab: .local)
         for byte in Array("ornith".utf8) { _ = screen.handleModelsBrowserKey(byte) }
+        screen.openLocalFamily(at: 0)
         let browser = try #require(screen.toolsBrowser)
         screen.toolsBrowser?.groupIndex = browser.groups.count - 1 // the 8-bit row
         let wanted = screen.selectedLocalModelID
@@ -183,6 +229,48 @@ struct RippleModelTests {
         _ = screen.handleModelsBrowserKey(0x20) // " " - still matches nothing new, list unchanged
         _ = screen.handleModelsBrowserKey(0x7F)
         #expect(screen.selectedLocalModelID == wanted) // not reset to the top
+    }
+
+    @Test("A search that empties the open provider backs out rather than showing nothing")
+    func searchEmptyingAProviderBacksOut() {
+        let screen = makeScreen()
+        screen.openModelHub(tab: .local)
+        screen.openLocalFamily(at: 0)
+        #expect(screen.localFamily != nil)
+        for byte in Array("zzz".utf8) { _ = screen.handleModelsBrowserKey(byte) }
+        #expect(screen.localFamily == nil)
+    }
+
+    @Test("Local and Remote are the same view: providers, then models under a role heading")
+    func localAndRemoteMirrorEachOther() throws {
+        let screen = makeScreen()
+        screen.openRouterCatalog = Self.sampleOpenRouterCatalog
+
+        // Level 1 on both: provider rows, no drill-in set, with a right-hand summary.
+        screen.openModelHub(tab: .local)
+        let localLevel1 = try #require(screen.toolsBrowser)
+        screen.openRouterProvider = nil
+        let remoteLevel1 = screen.makeOpenRouterBrowser()
+        #expect(localLevel1.groups.allSatisfy { $0.trailing != nil })
+        #expect(remoteLevel1.groups.allSatisfy { $0.trailing != nil })
+
+        // Level 2 on both: model rows sectioned by role, the id as a selection-only subtitle, and the
+        // same columns in the same places.
+        screen.openLocalFamily(at: 0)
+        let localRows = try #require(screen.toolsBrowser).groups
+        screen.openRouterProvider = "NVIDIA"
+        let remoteRows = screen.makeOpenRouterBrowser().groups
+        #expect(localRows.compactMap(\.section).allSatisfy { ["Text", "Text + Vision", "Vision"].contains($0.title) })
+        #expect(remoteRows.compactMap(\.section).allSatisfy { ["Text", "Text + Vision"].contains($0.title) })
+        #expect(remoteRows.allSatisfy { $0.subtitleOnSelection })
+        // A remote row carries the same context / output facts a local one does.
+        let nano = try #require(Self.sampleOpenRouterCatalog.first { $0.id.contains("nano") })
+        let columns = ChatScreen.remoteModelColumns(nano, isAdded: false)
+        #expect(columns.contains("256k ctx"))
+        #expect(nano.roleLabel == "Text + Vision") // it takes images
+        let super3 = try #require(Self.sampleOpenRouterCatalog.first { $0.id.contains("super") })
+        #expect(ChatScreen.remoteModelColumns(super3, isAdded: true).contains("16k out"))
+        #expect(super3.roleLabel == "Text")
     }
 
     @Test("Model management is unified under /model (the standalone /models-config is retired)")
@@ -228,13 +316,21 @@ struct RippleModelTests {
     /// filter tests run offline.
     private static let sampleOpenRouterCatalog: [OpenRouterModel] = [
         OpenRouterModel(
-            id: "nvidia/nemotron-3-super:free", name: "NVIDIA: Nemotron 3 Super (free)", contextLength: 1_000_000, vision: false
+            id: "nvidia/nemotron-3-super:free", name: "NVIDIA: Nemotron 3 Super (free)",
+            contextLength: 1_000_000, maxCompletionTokens: 16384, vision: false
         ),
         OpenRouterModel(
-            id: "nvidia/nemotron-3-nano:free", name: "NVIDIA: Nemotron 3 Nano (free)", contextLength: 256_000, vision: true
+            id: "nvidia/nemotron-3-nano:free", name: "NVIDIA: Nemotron 3 Nano (free)",
+            contextLength: 256_000, maxCompletionTokens: nil, vision: true
         ),
-        OpenRouterModel(id: "google/gemma-4-31b:free", name: "Google: Gemma 4 31B (free)", contextLength: 262_000, vision: true),
-        OpenRouterModel(id: "meta-llama/llama-3.3-70b:free", name: "Meta: Llama 3.3 70B (free)", contextLength: 131_000, vision: false)
+        OpenRouterModel(
+            id: "google/gemma-4-31b:free", name: "Google: Gemma 4 31B (free)",
+            contextLength: 262_000, maxCompletionTokens: 8192, vision: true
+        ),
+        OpenRouterModel(
+            id: "meta-llama/llama-3.3-70b:free", name: "Meta: Llama 3.3 70B (free)",
+            contextLength: 131_000, maxCompletionTokens: nil, vision: false
+        )
     ]
 
     private func makeScreen() -> ChatScreen {
