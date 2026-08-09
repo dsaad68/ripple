@@ -231,7 +231,9 @@ extension ChatScreen {
         // grey, so the eye lands on the explanation first and then leaves it alone.
         let edge = Theme.accent.xterm
         let inner = max(24, width - 8) // interior columns between the box's │ bars
-        let title = "ⓘ " + tab.title.lowercased()
+        // Two spaces after the ⓘ, not one: terminals draw the circled glyph filling its whole cell,
+        // so a single space leaves it touching the first letter.
+        let title = "ⓘ  " + tab.title.lowercased()
         let titleFill = max(0, inner - TextWidth.of(title) - 3) // "─ " + title + " " then fill to ╮
         var out = [Line("  " + Paint.fg(edge, "╭─ " + title + " "
                 + String(repeating: "─", count: titleFill) + "╮"))]
